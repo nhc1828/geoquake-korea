@@ -1,0 +1,12 @@
+{
+  "schemaVersion": "1.0",
+  "generatedAt": null,
+  "lookbackDays": 7,
+  "sources": {
+    "KMA": {"state": "pending", "checkedAt": null, "count": 0, "message": "GitHub Actions 첫 실행 대기"},
+    "JMA": {"state": "pending", "checkedAt": null, "count": 0, "message": "GitHub Actions 첫 실행 대기"},
+    "USGS": {"state": "pending", "checkedAt": null, "count": 0, "message": "GitHub Actions 첫 실행 대기"}
+  },
+  "events": [],
+  "notice": "실제 자료 수신 전입니다. 시뮬레이션 데이터가 아닙니다."
+}
