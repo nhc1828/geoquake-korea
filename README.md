@@ -1,42 +1,53 @@
-# GEOQUAKE KOREA — 실시간 웹앱 구축 1단계
+# GEOQUAKE KOREA — 지진 관측정보 모니터링 웹앱
 
-이 저장소는 **GitHub Pages에 웹 화면을 먼저 배포하는 단계**입니다. 아직 Railway 서버나 WebSocket 연결은 포함하지 않습니다. 현재 지진 목록은 `site/data/events.json`의 상태를 읽고, 데이터 수신 전에는 **연결 대기**로 표시됩니다. 절대 이 상태를 ‘지진 없음’으로 오해하지 마세요.
+한국 기상청(KMA), 일본 기상청(JMA), 미국 지질조사국(USGS)의 **지진 발생 후 발표정보**를 통합하는 교육용 프로젝트입니다. 공식 재난경보 또는 지진 발생 전 예측 서비스가 아닙니다.
 
-## 구조
+## 접속 주소
+
+- **웹앱:** https://nhc1828.github.io/geoquake-korea/
+- **시뮬레이션 실험실:** https://nhc1828.github.io/geoquake-korea/lab/
+- **Railway 서버 상태:** https://geoquake-korea-server-production.up.railway.app/health
+- **실제 지진 데이터 JSON:** https://geoquake-korea-server-production.up.railway.app/api/events
+
+## 현재 구축 상태 (3단계)
+
+| 부분 | 상태 |
+|---|---|
+| GitHub Pages | 메인 웹앱 및 원본 실험실 배포 |
+| Railway | FastAPI 서버 상시 실행 |
+| USGS | 최근 7일 M2.5 이상 자료를 약 60초마다 수집 |
+| WebSocket | `/ws`로 서버 수신 자료를 브라우저에 전달 (연결 시) |
+| HTTP 보완 | 연결 장애 대비 메인 화면에서 60초마다 `/api/events` 조회 |
+| KMA 및 JMA | 아직 연결되지 않음 (추후 단계) |
+
+## 저장소 폴더
 
 ```text
-.github/workflows/geoquake-pages.yml  # 정적 웹 화면만 GitHub Pages에 배포
-site/index.html                       # 모니터링 화면
-site/assets/app.js                   # 지도/필터/알림/페이지 전환
-site/assets/style.css                # 스타일
-site/data/events.json                # 1단계: 실제 자료 연결 대기 (정적 파일)
-site/data/base_geometry.json         # 내장 지도 형태
-site/lab/index.html                  # 원본 GEOQUAKE v0.8 실험실 (수정하지 않음)
-scripts/fetch_earthquakes.py         # 다음 단계 참고할 기존 데이터 수집기 (현재 미실행)
-tests/test_fetch.py                  # 해당 수집기 단위 테스트
-API_GUIDE.md                         # API 참고 설명
-DEPLOY_GUIDE.md                      # 이 단계 따라하기
+.github/workflows/geoquake-pages.yml   GitHub Pages 정적 배포
+site/index.html                        메인 화면
+site/assets/app.js                     Railway API/WebSocket 수신 및 지도·필터·알림
+site/assets/style.css                  화면 스타일
+site/data/base_geometry.json          지도 대체 데이터
+site/lab/index.html                    기존 GEOQUAKE v0.8 실험실, 변경 없이 보존
+backend/main.py                        Railway 서버 (USGS 수집, HTTP, WebSocket)
+backend/requirements.txt               Python 의존성
+scripts/                                이전 수집기 코드 (현재 배포에서 미사용)
 ```
 
-## 바로 시작하기
+## 배포 설명
 
-1. 이 ZIP을 풀고 안의 **파일과 폴더 전체**를 GitHub 공개 저장소 `geoquake-korea`의 **최상위**에 업로드합니다. ZIP 파일 자체는 올리지 않습니다.
-2. `.github/workflows/geoquake-pages.yml`이 보이는지 확인합니다.
-3. GitHub 저장소 → **Settings → Pages → Build and deployment → Source → GitHub Actions**를 선택합니다.
-4. **Actions → Deploy GEOQUAKE frontend (GitHub Pages) → Run workflow**를 실행합니다. 이미 자동으로 성공했다면 생략할 수 있습니다.
-5. **Settings → Pages**의 배포 주소에 접속해 화면과 `실험실` 탭을 확인합니다.
+1. `site/` 하위 파일이 수정되면 `.github/workflows/geoquake-pages.yml`가 GitHub Pages를 배포합니다.
+2. `backend/`가 수정되면 Railway가 연결된 `main` 브랜치의 `/backend` 디렉터리를 빌드하도록 설정합니다.
+3. Railway 앱은 `python main.py`로 실행하고, 서비스 도메인의 대상 포트가 Uvicorn의 실제 수신 포트와 일치해야 합니다.
+4. GitHub Pages 화면이 1분마다 HTTP로 최신 자료를 확인하는 동시에 WebSocket을 통해 새로운 발표를 수신합니다.
+5. 초 단위 **화면 전송**은 가능하더라도 원본 USGS 피드는 약 1분 단위로 갱신됩니다. 단독 대피경보로 사용하지 않습니다.
 
-자세한 단계는 [DEPLOY_GUIDE.md](DEPLOY_GUIDE.md)를 확인하세요.
+### 문제 확인
 
-### 성공 기준
+- `/health`의 `service: ok`: 서버 실행 성공
+- `/health`의 `usgs: ok`: 외부 USGS 수신 성공
+- `/api/events`의 `sources.USGS.state: ok`: 실제 자료가 수집된 상태
+- 화면의 `연결 대기`: 자료원이 아직 연결되지 않았거나 상태를 확인하지 못한 경우
+- `KMA`, `JMA`의 `pending`: 아직 수집기를 연결하지 않았으므로 정상
 
-- 사이트 URL이 열리고 메뉴 및 지도 영역이 보인다.
-- 실험실에서 원본 v0.8 시뮬레이션을 실행할 수 있다.
-- 메인 지진 정보의 **연결 대기** 상태는 정상이다. Railway를 연결하기 전에는 실시간 지진정보가 보이지 않는다.
-- GitHub Actions는 코드를 배포할 뿐 **주기적으로 지진 API를 호출하지 않는다**.
-
-### 다음 단계
-
-Railway에 서버를 만들고 세 기관의 데이터 수집 및 WebSocket을 연결한 후, `site/assets/app.js`가 `site/data/events.json` 대신 Railway의 공개 API/WebSocket을 사용하도록 변경합니다. GitHub Pages는 정적 웹 화면만 제공합니다.
-
-주의: 실제 지진 이전 예측이나 공적 재난 경보를 제공하지 않습니다. 지진이 발생한 뒤 관측·발표된 공식/공개 정보를 보여 주는 개인 학습 프로젝트입니다.
+앞으로 **JMA 자료 → KMA 인증키 → 기관 간 지진 중복 식별 및 시각화** 순서로 기능을 추가합니다.

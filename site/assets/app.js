@@ -1,9 +1,14 @@
-/* GEOQUAKE KOREA 1.0 public viewer. No API key is stored or fetched here. */
+/* GEOQUAKE KOREA 1.1 live viewer. KMA keys stay server-side. */
 'use strict';
 (() => {
 const $ = id => document.getElementById(id);
 const labels = {KMA:'한국 기상청',JMA:'일본 기상청',USGS:'미국 지질조사국'};
-const state = {data:null, filtered:[], selected:null, map:null, layer:null, markers:new Map(), markerReady:false, fallback:null, initialized:false, known:new Set(), watchMarker:null};
+const API_BASE = 'https://geoquake-korea-server-production.up.railway.app';
+const EVENTS_URL = API_BASE + '/api/events';
+const SOCKET_URL = API_BASE.replace(/^https:/, 'wss:') + '/ws';
+const RECONNECT_LIMIT_MS = 30000;
+const FALLBACK_POLL_MS = 60000;
+const state = {data:null, filtered:[], selected:null, map:null, layer:null, markers:new Map(), markerReady:false, fallback:null, initialized:false, known:new Set(), watchMarker:null, transport:'connecting', socket:null, reconnectTimer:null, reconnectAttempt:0, lastReceivedAt:null};
 const esc = x => String(x ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const n = x => typeof x === 'number' && Number.isFinite(x) ? x : null;
 const dt = x => x ? new Date(x) : null;
@@ -99,8 +104,9 @@ function renderSources(){if(!state.data)return;const snapshot=state.data;
   }).join('');
   $('updatedAt').textContent='마지막 수집: '+isoTime(snapshot.generatedAt);
   const good=['KMA','JMA','USGS'].filter(k=>(snapshot.sources||{})[k]?.state==='ok').length;
-  $('globalStatus').textContent=stale?'자료 갱신 지연':good?good+'개 기관 수신':'연결 대기/오류';
-  document.querySelector('.livepoint').className='livepoint '+(stale||!good?'bad':'ok');
+  const mode=state.transport==='live'?'WebSocket 연결':state.transport==='connecting'?'서버 연결 중':state.transport==='reconnecting'?'실시간 재연결 중':'HTTP로 확인 중';
+  $('globalStatus').textContent=stale?'자료 갱신 지연':good?good+'개 기관 수신 · '+mode:'자료 수신 대기/오류 · '+mode;
+  document.querySelector('.livepoint').className='livepoint '+(stale||!good||state.transport!=='live'?'bad':'ok');
 }
 function renderStats(){if(!state.data)return;const events=state.data.events,now=Date.now(),recent=events.filter(e=>now-new Date(e.occurredAt).getTime()<86400000&&now>=new Date(e.occurredAt).getTime());
   $('count24').textContent=recent.length.toLocaleString('ko-KR')+'건';
@@ -112,7 +118,7 @@ function renderStats(){if(!state.data)return;const events=state.data.events,now=
 }
 function renderEvents(){const shown=state.filtered;$('filterCount').textContent='목록 '+shown.length+'건';$('mapCount').textContent='지도 '+Math.min(550,shown.filter(hasCoords).length)+'개 표시';
   const noGood=!state.data || !Object.values(state.data.sources||{}).some(s=>s.state==='ok');
-  if(!shown.length){$('eventList').innerHTML=`<div class="empty">${noGood?'정상 수신 중인 자료원이 없습니다.<br>기관별 연결 상태와 GitHub Actions 실행 결과를 확인하세요.':'조회 조건에 해당하는 발표자료가 없습니다.<br>필터 또는 수집된 기관의 범위를 확인하세요.'}</div>`;return;}
+  if(!shown.length){$('eventList').innerHTML=`<div class="empty">${noGood?'정상 수신 중인 자료원이 없습니다.<br>Railway 서버와 기관별 수집 상태를 확인하세요.':'조회 조건에 해당하는 발표자료가 없습니다.<br>필터 또는 수집된 기관의 범위를 확인하세요.'}</div>`;return;}
   $('eventList').innerHTML=shown.slice(0,150).map(e=>{
     const m=n(e.magnitude),active=state.selected===e.id,depth=n(e.depthKm);
     return `<button type="button" class="eventitem ${active?'selected':''}" data-eid="${esc(e.id)}"><span class="magblock ${mStyle(m)}">${m===null?'—':m.toFixed(1)}</span><span><span class="eventtop"><b>${esc(e.location)}</b><span class="sourcechip">${esc(e.source)}</span></span><span class="eventmeta"><span>${esc(isoTime(e.occurredAt))}</span><span>${depth===null?'깊이 미상':depth+' km'}</span></span><span class="eventkind">${esc(e.bulletinType)}${e.cancelled?' · 취소':''}${e.maxIntensity?' · 최대진도 '+esc(e.maxIntensity):''}</span></span></button>`;
@@ -157,16 +163,83 @@ function newRecords(payload){const entries=payload.events||[];const fresh=[];
     try{new Notification('GEOQUAKE · 새 지진 발생정보 (공식 조기경보 아님)',{body:`${top.source} · M ${top.magnitude} · ${top.location}`,tag:'gq-'+top.id});}catch{}
   }
 }
+// The Railway API is the only source of live data. The old static JSON is not a fallback.
+function validSnapshot(data){
+  return data && data.schemaVersion==='1.0' && Array.isArray(data.events)
+    && data.sources && typeof data.sources==='object'
+    && ['KMA','JMA','USGS'].every(key=>data.sources[key] && typeof data.sources[key].state==='string')
+    && data.events.every(event=>event && typeof event.id==='string' && event.id.length>0 &&
+      ['KMA','JMA','USGS'].includes(event.source) && typeof event.occurredAt==='string');
+}
+function receiveSnapshot(data){
+  if(!validSnapshot(data))throw Error('Railway 응답 형식 불일치');
+  const prevTime=state.data?.generatedAt && Date.parse(state.data.generatedAt);
+  const nextTime=data.generatedAt && Date.parse(data.generatedAt);
+  // Never replace newer live data with an older HTTP response that arrives later.
+  if(Number.isFinite(prevTime)&&Number.isFinite(nextTime)&&nextTime<prevTime)return;
+  newRecords(data);
+  state.data=data;
+  state.lastReceivedAt=Date.now();
+  if(state.selected&&!data.events.some(event=>event.id===state.selected))state.selected=null;
+  update();
+  if(!state.selected&&state.filtered.length)selectEvent(state.filtered[0].id,false);
+}
 let fetching=false;
 async function refresh(){if(fetching)return;fetching=true;$('reloadBtn').disabled=true;
-  try{const r=await fetch('./data/events.json?_='+Date.now(),{cache:'no-store'});if(!r.ok)throw Error('HTTP '+r.status);
-    const data=await r.json();if(data.schemaVersion!=='1.0'||!Array.isArray(data.events)||!data.sources)throw Error('데이터 파일 형식 오류');
-    newRecords(data);state.data=data;update();
-    if(!state.selected&&state.filtered.length)selectEvent(state.filtered[0].id,false);
-  }catch(err){$('globalStatus').textContent='데이터 파일 연결 실패';document.querySelector('.livepoint').className='livepoint bad';
-    if(!state.data)$('eventList').innerHTML='<div class="empty">데이터 파일을 읽지 못했습니다.<br>GitHub Actions의 배포 성공 여부를 확인하세요.</div>';
-    console.warn('GEOQUAKE snapshot fetch:',err.message);
+  try{
+    const controller=new AbortController();
+    const timeout=setTimeout(()=>controller.abort(),12000);
+    let response;
+    try{response=await fetch(EVENTS_URL,{cache:'no-store',mode:'cors',signal:controller.signal});}
+    finally{clearTimeout(timeout);}
+    if(!response.ok)throw Error('HTTP '+response.status);
+    receiveSnapshot(await response.json());
+  }catch(err){
+    if(state.transport!=='live'){
+      $('globalStatus').textContent='Railway 서버 연결 실패 · 재시도 중';
+      document.querySelector('.livepoint').className='livepoint bad';
+    }
+    if(!state.data)$('eventList').innerHTML='<div class="empty">Railway 서버에 연결할 수 없습니다.<br>잠시 후 자동으로 재시도하며 기존 정적 자료로 대체하지 않습니다.</div>';
+    console.warn('GEOQUAKE API:',err.message);
   }finally{fetching=false;$('reloadBtn').disabled=false;}
+}
+function scheduleReconnect(){
+  if(state.reconnectTimer!==null)return;
+  const delay=Math.min(RECONNECT_LIMIT_MS,1000*2**Math.min(state.reconnectAttempt,5));
+  state.reconnectAttempt+=1;
+  state.reconnectTimer=setTimeout(()=>{state.reconnectTimer=null;connectSocket();},delay);
+}
+function connectSocket(){
+  if(state.socket && (state.socket.readyState===WebSocket.OPEN || state.socket.readyState===WebSocket.CONNECTING))return;
+  if(!('WebSocket' in window)){
+    state.transport='http';if(state.data)renderSources();return;
+  }
+  state.transport=state.reconnectAttempt?'reconnecting':'connecting';
+  if(state.data)renderSources();
+  let socket;
+  try{socket=new WebSocket(SOCKET_URL);}catch(err){state.transport='reconnecting';scheduleReconnect();return;}
+  state.socket=socket;
+  socket.onopen=()=>{
+    if(state.socket!==socket)return;
+    state.transport='live';state.reconnectAttempt=0;
+    if(state.data)renderSources();
+  };
+  socket.onmessage=event=>{
+    if(state.socket!==socket)return;
+    try{const message=JSON.parse(event.data);
+      if(message?.type==='snapshot')receiveSnapshot(message.data);
+    }catch(err){console.warn('GEOQUAKE WebSocket message:',err.message);}
+  };
+  socket.onclose=()=>{
+    if(state.socket!==socket)return;
+    state.socket=null;state.transport='reconnecting';
+    if(state.data)renderSources();
+    scheduleReconnect();
+  };
+  socket.onerror=()=>{
+    // The close event schedules reconnect; errors do not require a second timer.
+    if(state.socket===socket)socket.close();
+  };
 }
 function escapeCSV(x){let v=x==null?'':String(x);if(/^[=+@-]/.test(v))v="'"+v;return '"'+v.replace(/"/g,'""')+'"';}
 function csv(){const cols=['source','agencyEventId','occurredAt','reportedAt','location','magnitude','depthKm','latitude','longitude','maxIntensity','intensityScale','bulletinType'];const content=['\uFEFF'+cols.join(','),...state.filtered.map(e=>cols.map(c=>escapeCSV(e[c])).join(','))].join('\r\n');const blob=new Blob([content],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='GEOQUAKE_KOREA_발생기록.csv';document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),3000);}
@@ -181,6 +254,6 @@ function bind(){for(const b of document.querySelectorAll('[data-tab]'))b.onclick
   $('notifyToggle').onchange=()=>{saveWatch();$('notifyStatus').textContent=$('notifyToggle').checked?'활성화 · 열려 있는 페이지에서 새 발표를 확인합니다.':'알림 꺼짐';};
   $('notifyPermission').onclick=async()=>{if(!('Notification' in window))return toast('이 브라우저는 데스크톱 알림을 지원하지 않습니다.');if(!window.isSecureContext)return toast('HTTPS 환경에서 권한을 요청해 주세요.');const result=await Notification.requestPermission();$('notifyStatus').textContent=result==='granted'?'브라우저 알림 허용됨 · 새 자료가 감지되면 알립니다.':'알림 권한: '+result;};
 }
-function init(){bind();restoreWatch();mapSetup();updateWatchMarker();refresh();setInterval(refresh,60_000);setInterval(()=>{$('clock').textContent=new Date().toLocaleTimeString('ko-KR',{timeZone:'Asia/Seoul',hour12:false});},1000);tab(['lab','guide'].includes(location.hash.slice(1))?location.hash.slice(1):'monitor');}
+function init(){bind();restoreWatch();mapSetup();updateWatchMarker();refresh();connectSocket();setInterval(refresh,FALLBACK_POLL_MS);setInterval(()=>{if(state.data)renderSources();},30000);setInterval(()=>{$('clock').textContent=new Date().toLocaleTimeString('ko-KR',{timeZone:'Asia/Seoul',hour12:false});},1000);tab(['lab','guide'].includes(location.hash.slice(1))?location.hash.slice(1):'monitor');}
 init();
 })();
