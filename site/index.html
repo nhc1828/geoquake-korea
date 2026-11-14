@@ -5,10 +5,13 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#091521">
   <meta name="description" content="GEOQUAKE KOREA — 실제 KMA·JMA·USGS 지진 발표정보를 실시간으로 받아 지도와 알림으로 보여주는 웹 기반 모니터링 서비스.">
-  <title>GEOQUAKE KOREA | 실시간 지진 발표 모니터</title>
-  <link rel="stylesheet" href="./assets/map-first.css?v=4.0.1">
-  <script defer src="./assets/map-first-core.js?v=4.0.1"></script>
-  <script defer src="./assets/map-first.js?v=4.0.1"></script>
+  <title>GEOQUAKE KOREA | 실제 세계지도 · 지진 발생 모니터</title>
+  <link rel="stylesheet" href="./assets/map-first.css?v=4.1.0">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@6.16.0/dist/maplibre-gl.css">
+  <script defer src="./assets/map-first-core.js?v=4.1.0"></script>
+  <script defer src="./assets/intensity-model.js?v=4.1.0"></script>
+  <script defer src="./assets/map-first.js?v=4.1.0"></script>
+  <script type="module" src="./assets/real-map.js?v=4.1.0"></script>
 </head>
 <body>
 <div class="application" id="application">
@@ -16,7 +19,7 @@
     <header class="side-top">
       <span class="brand-symbol" aria-hidden="true"><svg viewBox="0 0 40 40"><path d="M2 21h7l5-13 8 25 6-17 4 5h6" fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/></svg></span>
       <div class="brand-type"><strong>GEOQUAKE <em>KOREA</em></strong><span>REAL-TIME EARTHQUAKE MONITOR</span></div>
-      <span class="version">4.0</span>
+      <span class="version">4.1</span>
     </header>
     <div class="sidebar-title"><span><span class="live-dot"></span> 최근 실제 지진 발표</span><span class="tiny-tag">KMA · JMA · USGS</span></div>
     <article class="hero-event" id="heroEvent" aria-live="polite">
@@ -45,7 +48,7 @@
 
   <nav class="iconrail" aria-label="화면 및 설정">
     <button type="button" id="navQuakes" title="지진정보" class="active" aria-label="지진정보" aria-current="page"><svg viewBox="0 0 24 24"><path d="M3 12h4l3-7 4 14 3-7h4"/></svg></button>
-    <button type="button" id="navObserved" title="실측 진도 표시" aria-label="실측 진도 표시" aria-pressed="true"><svg viewBox="0 0 24 24"><path d="M3 18 9 8l4 6 4-9 4 13z"/></svg></button>
+    <button type="button" id="navObserved" title="실측·추정진도 레이어 전환" aria-label="실측·추정진도 레이어 전환" aria-pressed="true"><svg viewBox="0 0 24 24"><path d="M3 18 9 8l4 6 4-9 4 13z"/></svg></button>
     <button type="button" id="navSettings" title="알림 설정" aria-label="알림 설정"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3m0 14v3M2 12h3m14 0h3M4.9 4.9 7 7m10 10 2.1 2.1M19.1 4.9 17 7M7 17l-2.1 2.1"/></svg></button>
     <a href="./lab/" title="교육용 실험실 (별도 페이지)" aria-label="교육용 실험실" class="rail-lab"><svg viewBox="0 0 24 24"><path d="M9 3h6M10 3v7l-6 9c-.5 1 .5 2 1.5 2h13c1 0 2-1 1.5-2l-6-9V3M8 15h8"/></svg></a>
     <div class="rail-spacer"></div>
@@ -54,19 +57,24 @@
   </nav>
 
   <main class="map-view" aria-label="지진 분포 지도">
-    <div class="map-surface" id="mapSurface"><div id="tileBackdrop" class="map-tiles" aria-hidden="true"></div><canvas id="mapCanvas" role="img" aria-label="실제 지진 진앙 및 기관별 관측진도 지도. 마우스로 이동, 휠로 확대 및 축소할 수 있습니다."></canvas></div>
+    <div class="map-surface" id="mapSurface">
+      <div id="realMap" class="real-map" role="application" aria-label="OpenStreetMap 기반 실제 전 세계 지진 지도. 마우스로 이동 및 확대·축소할 수 있습니다."></div>
+      <div id="realMapStatus" class="real-map-status" data-level="loading">실제 세계지도를 연결하고 있습니다…</div>
+    </div>
     <div class="map-top-left"><div class="clockbox"><time id="clock">--:--:--</time><span>KST · <span id="today">—</span></span></div><div id="mapUpdate" class="update-pill">수신 대기</div></div>
     <div class="map-top-right"><div class="connection-status" id="connectionStatus" data-status="connecting"><span class="conn-dot"></span><span id="connectionText">서버 연결 중</span></div><button id="audioToggle" type="button" class="top-control" aria-pressed="false" title="지진 발표 알림음"><span id="audioIcon">♪</span> <span id="audioLabel">알림음 켜기</span></button><button id="mapFollow" type="button" class="top-control selected" aria-pressed="true">◎ 최신 사건 추적</button></div>
-    <div class="map-key" id="mapKey"><div class="map-key-head"><b>지역별 관측진도</b><span>JMA 발표 관측점 최고값</span></div><div class="intensity-legend"><span style="--x:#41637a">1</span><span style="--x:#4ba7c0">2</span><span style="--x:#63c69c">3</span><span style="--x:#d6c968">4</span><span style="--x:#ecb654">5약</span><span style="--x:#e98652">5강</span><span style="--x:#e36b65">6약</span><span style="--x:#b75bd5">6강</span><span style="--x:#ea87d6">7</span></div><p id="mapKeyNote">관측점 자료가 있는 도도부현만 색칠합니다. 지도 전체의 예상진도가 아닙니다.</p></div>
-    <div class="map-zoom" role="group" aria-label="지도 확대·축소"><button id="zoomIn" type="button" aria-label="확대">＋</button><button id="zoomOut" type="button" aria-label="축소">−</button><button id="zoomReset" type="button" aria-label="한일 전체 보기">⌖</button></div>
-    <div class="map-foot"><span>지진 위치: KMA · JMA(P2PQuake 중계) · USGS / 행정경계: geoBoundaries / 지도 윤곽: Natural Earth · 배경: NASA GIBS</span><span id="coordDisplay">한반도·일본</span></div>
+    <div class="map-key" id="mapKey"><div class="map-key-head"><b id="mapKeyTitle">관측 우선 + 추정 보완</b><span id="mapKeySubtitle">실측 JMA / 추정 JMA·MMI</span></div><div class="intensity-legend"><span style="--x:#41637a">1</span><span style="--x:#4ba7c0">2</span><span style="--x:#63c69c">3</span><span style="--x:#d6c968">4</span><span style="--x:#ecb654">5약</span><span style="--x:#e98652">5강</span><span style="--x:#e36b65">6약</span><span style="--x:#b75bd5">6강</span><span style="--x:#ea87d6">7</span></div><div class="intensity-legend mmi-legend" aria-label="교육용 MMI 모형 등급"><span style="--x:#42647f">MMI 2</span><span style="--x:#48a4b0">4</span><span style="--x:#a6c468">6</span><span style="--x:#e9a453">8</span><span style="--x:#e56d62">10</span></div>
+      <div class="quality-legend"><span><i class="quality-dot observed-dot"></i>실제 관측</span><span><i class="quality-dot estimated-dot"></i>교육용 추정</span></div>
+      <p id="mapKeyNote">관측값 우선, 관측이 없는 지역에는 거리감쇠 모형을 적용합니다. 실제 경보가 아닙니다.</p></div>
+    <div class="map-zoom" role="group" aria-label="지도 확대·축소"><button id="zoomIn" type="button" aria-label="확대">＋</button><button id="zoomOut" type="button" aria-label="축소">−</button><button id="zoomReset" type="button" aria-label="중국·한국·일본 전체 보기">⌖</button></div>
+    <div class="map-foot"><span>지진정보: KMA · JMA(P2PQuake 중계) · USGS / 세계지도: OpenFreeMap · © OpenStreetMap / 행정경계: geoBoundaries gbOpen (CC BY 4.0)</span><span id="coordDisplay">한반도·일본</span></div>
     <div id="mapTip" class="map-tooltip" hidden></div>
 
     <section class="event-detail" id="eventDetail" hidden aria-label="선택한 실제 지진 발표 상세정보">
       <div class="event-detail-head"><div><small>VERIFIED SOURCE EVENT</small><strong id="detailTitle">지진 발생정보</strong></div><button id="detailClose" type="button" aria-label="상세정보 닫기">×</button></div>
       <p class="detail-source" id="detailSubtitle">기관 자료</p>
       <div id="threeLang" class="languages"></div>
-      <div class="detail-note" id="detailNote">지역별 관측진도는 별도 원문이 있어야 표시됩니다.</div>
+      <div class="detail-note" id="detailNote">지역별 진도는 관측값과 모형 추정값을 구분해 표시합니다.</div>
       <a id="sourceLink" href="#" class="source-link" target="_blank" rel="noopener noreferrer" hidden>기관 원문 확인 ↗</a>
     </section>
 
@@ -85,11 +93,18 @@
     <label for="focusRegion">알림 대상 지역</label><select id="focusRegion"><option value="all">전 세계</option><option value="eastasia">동아시아</option><option value="korea">한반도 주변</option><option value="japan">일본 주변</option></select>
     <div class="setting-line"><div><strong>경보음 사용</strong><p>브라우저 정책에 따라 직접 클릭해 활성화해야 합니다.</p></div><button id="audioSetting" type="button">소리 켜기</button></div>
     <div class="setting-line"><div><strong>운영체제 알림</strong><p>허용하면 백그라운드 탭에서도 표시될 수 있습니다. 앱 종료 후 푸시는 지원하지 않습니다.</p></div><button id="notifyPermission" type="button">권한 요청</button></div>
-    <div class="setting-line"><div><strong>진도 색칠</strong><p>지역별 기관 관측점 자료가 있는 경우에만 지도에 표시합니다.</p></div><label class="switch-label"><input type="checkbox" id="observedToggle" checked> 표시</label></div>
+    <label for="intensityModeSelect">지도 진도 색칠 모드</label>
+    <select id="intensityModeSelect">
+      <option value="hybrid">관측 우선 + 없는 지역은 모형 추정 (기본)</option>
+      <option value="observed">기관이 발표한 관측진도만 표시</option>
+      <option value="model">모형 예상진도만 표시 (실험실 공식)</option>
+      <option value="off">진도 색칠 끄기</option>
+    </select>
+    <p class="model-warning">모형 진도는 진앙·규모·깊이·거리만 반영하는 교육용 시연값입니다. 공식 관측진도나 재난경보가 아닙니다.</p>
     <div class="setting-line"><div><strong>연결 진단</strong><p id="netDiagnostics">—</p></div><button type="button" id="testSound">음향 테스트</button></div>
     <p class="dialog-safety">본 서비스는 공공 긴급재난경보의 대체 수단이 아닙니다. 지진 발생 전 예측, 지진파 실측 스트림, 쓰나미 안전 판정은 제공하지 않습니다.</p>
   </form>
 </dialog>
-<dialog id="helpDialog" class="settings-dialog"><form method="dialog"><div class="dialog-head"><h2>GEOQUAKE KOREA 데이터 안내</h2><button class="close-dialog" value="cancel" aria-label="닫기">×</button></div><p>이 화면은 실제 기관에서 발표한 지진 발생정보를 수신한 뒤 표시합니다. 화면 안에서 발생하는 새로운 발표 알림은 정부의 공식 긴급지진속보와 동일하지 않습니다.</p><p>한국 기상청(KMA)은 서버의 지진통보 API 조회, 일본 기상청(JMA)은 P2PQuake의 JMA 551 발표 중계, 미국 USGS는 공개 GeoJSON 피드를 사용합니다. 각각 제공 주기와 지연은 다릅니다.</p><p>일본의 색칠 지도는 <b>각 도도부현 관측점의 보고된 최고진도</b>를 편의상 영역에 표시하는 것으로, 현 전역이 동일한 진도로 흔들렸다는 뜻이 아닙니다. 관측자료가 없으면 색칠하지 않습니다.</p><p>지도: Natural Earth 국가 윤곽 · geoBoundaries gbOpen 행정경계(CC BY 4.0). 공식 발표기관: <a href="https://apihub.kma.go.kr/" target="_blank" rel="noopener noreferrer">KMA</a> · <a href="https://www.p2pquake.net/develop/" target="_blank" rel="noopener noreferrer">P2PQuake</a> · <a href="https://earthquake.usgs.gov/" target="_blank" rel="noopener noreferrer">USGS</a>.</p><p>원본 실험실은 <a href="./lab/" target="_blank" rel="noopener noreferrer">별도 교육용 시뮬레이터</a>에서 계속 사용할 수 있습니다.</p></form></dialog>
+<dialog id="helpDialog" class="settings-dialog"><form method="dialog"><div class="dialog-head"><h2>GEOQUAKE KOREA 데이터 안내</h2><button class="close-dialog" value="cancel" aria-label="닫기">×</button></div><p>이 화면은 실제 기관에서 발표한 지진 발생정보를 수신한 뒤 표시합니다. 화면 안에서 발생하는 새로운 발표 알림은 정부의 공식 긴급지진속보와 동일하지 않습니다.</p><p>한국 기상청(KMA)은 서버의 지진통보 API 조회, 일본 기상청(JMA)은 P2PQuake의 JMA 551 발표 중계, 미국 USGS는 공개 GeoJSON 피드를 사용합니다. 각각 제공 주기와 지연은 다릅니다.</p><p>일본에서 관측점별 진도가 제공되면 <b>해당 도도부현의 관측점 최고진도</b>를 표시합니다. 현 전체가 동일한 진도로 흔들렸다는 뜻이 아닙니다. 지역별 관측진도가 없는 경우에는 GEOQUAKE 실험실 v0.8의 거리감쇠 공식을 사용한 <b>교육용 예상진도</b>로 보완합니다. 한국·중국 및 기타 지역의 모형값은 MMI 기반이며, 일본의 모형값은 JMA 형식의 별도 시연 척도입니다. 두 척도를 직접 환산하거나 공식 경보값으로 해석해서는 안 됩니다.</p><p>기본 지도: OpenFreeMap(OpenStreetMap 데이터), 대체 지도: OpenStreetMap 표준 타일 · 행정경계: geoBoundaries gbOpen (CC BY 4.0). 공식 발표기관: <a href="https://apihub.kma.go.kr/" target="_blank" rel="noopener noreferrer">KMA</a> · <a href="https://www.p2pquake.net/develop/" target="_blank" rel="noopener noreferrer">P2PQuake</a> · <a href="https://earthquake.usgs.gov/" target="_blank" rel="noopener noreferrer">USGS</a>.</p><p>원본 실험실은 <a href="./lab/" target="_blank" rel="noopener noreferrer">별도 교육용 시뮬레이터</a>에서 계속 사용할 수 있습니다.</p></form></dialog>
 </body>
 </html>
