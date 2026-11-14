@@ -1,4 +1,4 @@
-"""GEOQUAKE KOREA 6A. USGS feed + JMA 551 P2PQuake relay; NOT EEW."""
+"""GEOQUAKE KOREA 6B. USGS + JMA 551 + KMA official bulletins. NOT EEW."""
 import asyncio
 from contextlib import asynccontextmanager, suppress
 from datetime import date, datetime, timedelta, timezone
@@ -10,6 +10,7 @@ import random
 
 import websockets
 from jma_feed import parse_jma_551
+from kma_feed import fetch_kma_bulletins
 
 import httpx
 import uvicorn
@@ -19,6 +20,10 @@ from fastapi.responses import JSONResponse
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger('geoquake')
+# httpx normally logs full query URLs at INFO level; authKey is a query param.
+# NEVER permit that log line to expose KMA_API_KEY in Railway logs.
+logging.getLogger('httpx').setLevel(logging.WARNING)
+logging.getLogger('httpcore').setLevel(logging.WARNING)
 USGS_URL = 'https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/2.5_week.geojson'
 USGS_HISTORY_URL = 'https://earthquake.usgs.gov/fdsnws/event/1/query'
 JMA_WS_URL = 'wss://api.p2pquake.net/v2/ws'
@@ -27,11 +32,16 @@ JMA_MAX_ITEMS = 300
 JMA_BOOTSTRAP_LIMIT = 100
 HISTORY_CACHE = {}  # bounded, in-memory public FDSN results (no personalized data)
 POLL_SECONDS = max(60, int(os.getenv('USGS_POLL_SECONDS', '60')))
+KMA_POLL_SECONDS = max(60, int(os.getenv('KMA_POLL_SECONDS', '120')))
+KMA_CONFIGURED = bool(os.getenv('KMA_API_KEY', '').strip())
+KMA_MAX_ITEMS = 500
 ORIGINS = {'https://nhc1828.github.io', 'http://localhost:5500', 'http://127.0.0.1:5500'}
 clients = set()
 state_lock = asyncio.Lock()
 usgs_records = []
 jma_records = {}  # P2PQuake 551 bulletin id -> normalized record; 1 replica only
+kma_records = {}  # KMA report id -> normalized official bulletin (in-memory)
+kma_seeded = False
 
 
 def now():
@@ -98,7 +108,9 @@ def make_snapshot():
     return {
         'schemaVersion': '1.0', 'generatedAt': None, 'lookbackDays': 7,
         'sources': {
-            'KMA': {'state': 'pending', 'checkedAt': None, 'count': 0, 'message': '다음 단계에서 KMA 연결'},
+            'KMA': {'state': 'pending' if KMA_CONFIGURED else 'unconfigured',
+                    'checkedAt': None, 'count': 0,
+                    'message': '공식 KMA 발표 수신 대기' if KMA_CONFIGURED else 'Railway KMA_API_KEY 미설정'},
             'JMA': {'state': 'pending', 'checkedAt': None, 'count': 0, 'connected': False, 'lastMessageAt': None, 'message': 'JMA 수신기 시작 대기'},
             'USGS': {'state': 'pending', 'checkedAt': None, 'count': 0, 'message': '첫 수신 대기'},
         },
@@ -122,12 +134,16 @@ async def broadcast():
 
 
 def rebuild_snapshot_locked():
-    """Called only under state_lock. Keep independent USGS and JMA feeds."""
+    """Called only under state_lock. Preserve independent USGS/JMA/KMA records."""
     global snapshot
     for key, event in list(jma_records.items()):
         if not recent_jma_record(event):
             jma_records.pop(key, None)
-    records = usgs_records + list(jma_records.values())
+    for key, event in list(kma_records.items()):
+        if not recent_kma_record(event):
+            kma_records.pop(key, None)
+    records = usgs_records + list(jma_records.values()) + list(kma_records.values())
+    snapshot['sources']['KMA']['count'] = len(kma_records)
     snapshot['sources']['JMA']['count'] = len(jma_records)
     records.sort(key=lambda e: e.get('occurredAt') or '', reverse=True)
     snapshot = {**snapshot, 'generatedAt': now(), 'events': records}
@@ -275,6 +291,81 @@ async def jma_ws_loop():
         retry = min(60, retry * 1.8)
 
 
+
+def recent_kma_record(event):
+    """Prune in-memory bulletin history after 7 days; not a durable archive."""
+    value = event.get('reportedAt')
+    if not value:
+        return False
+    try:
+        issued = datetime.fromisoformat(value.replace('Z', '+00:00'))
+    except ValueError:
+        return False
+    return datetime.now(timezone.utc) - timedelta(days=7) <= issued <= datetime.now(timezone.utc) + timedelta(minutes=5)
+
+
+async def collect_kma_once(http, auth_key):
+    """Fetch new KMA bulletins. Never expose the auth key or raw exception URL."""
+    global snapshot, kma_seeded
+    checked = now()
+    try:
+        items, raw_count = await fetch_kma_bulletins(http, auth_key)
+    except (httpx.HTTPError, ValueError, TypeError) as exc:
+        logger.warning('KMA fetch failed: %s', type(exc).__name__)
+        async with state_lock:
+            snapshot = {**snapshot, 'sources': {**snapshot['sources'], 'KMA': {
+                'state': 'error', 'checkedAt': checked,
+                'count': len(kma_records),
+                'message': '기상청 API 조회 실패 (' + type(exc).__name__ + ') · 이전 기록 유지'
+            }}}
+            rebuild_snapshot_locked()
+        await broadcast()
+        return False
+
+    imported = 0
+    async with state_lock:
+        for event in items:
+            if not recent_kma_record(event):
+                continue
+            key = event['id']
+            if key not in kma_records:
+                # First successful API backfill is history even if recent, and
+                # must never create an artificial emergency alarm on startup.
+                issued = datetime.fromisoformat(event['reportedAt'].replace('Z', '+00:00'))
+                is_new = kma_seeded and datetime.now(timezone.utc) - issued <= timedelta(minutes=20)
+                is_correction = bool(event.get('correctionType') and
+                                     any(word in event['correctionType'] for word in ('정정','취소','오보','수정')))
+                event['ingestMode'] = 'stream' if is_new and not is_correction else 'history'
+                kma_records[key] = event
+                imported += 1
+        kma_seeded = True
+        if len(kma_records) > KMA_MAX_ITEMS:
+            ordered = sorted(kma_records.values(), key=lambda e: e['reportedAt'], reverse=True)
+            kma_records.clear()
+            kma_records.update((e['id'], e) for e in ordered[:KMA_MAX_ITEMS])
+        snapshot = {**snapshot, 'sources': {**snapshot['sources'], 'KMA': {
+            'state': 'ok', 'checkedAt': checked, 'count': len(kma_records),
+            'message': '공식 지진통보문 조회 정상 · 최근 조회 발표 ' + str(raw_count) + '건'
+        }}}
+        rebuild_snapshot_locked()
+    logger.info('KMA: %d bulletins in query, %d newly recorded', raw_count, imported)
+    await broadcast()
+    return True
+
+
+async def kma_poll_loop():
+    """A single 120s (default) API polling task, never browser-side key access."""
+    secret = os.getenv('KMA_API_KEY', '').strip()
+    if not secret:
+        return
+    async with httpx.AsyncClient(timeout=25, follow_redirects=False,
+                                 headers={'User-Agent': 'GEOQUAKE-KOREA/6B educational',
+                                          'Accept': 'application/json'}) as http:
+        while True:
+            await collect_kma_once(http, secret)
+            await asyncio.sleep(KMA_POLL_SECONDS)
+
+
 async def poll_loop():
     async with httpx.AsyncClient(timeout=20, follow_redirects=False,
                                 headers={'User-Agent': 'GEOQUAKE-KOREA/2.0', 'Accept': 'application/json'}) as http:
@@ -290,6 +381,8 @@ async def lifespan(app):
         tasks.append(asyncio.create_task(poll_loop(), name='usgs-poll'))
     if os.getenv('GEOQUAKE_DISABLE_JMA') != '1':
         tasks.append(asyncio.create_task(jma_ws_loop(), name='jma-relay'))
+    if KMA_CONFIGURED and os.getenv('GEOQUAKE_DISABLE_KMA') != '1':
+        tasks.append(asyncio.create_task(kma_poll_loop(), name='kma-poll'))
     try:
         yield
     finally:
@@ -307,12 +400,16 @@ app.add_middleware(CORSMiddleware, allow_origins=sorted(ORIGINS), allow_credenti
 
 @app.get('/')
 async def root():
-    return {'service': 'GEOQUAKE KOREA backend', 'phase': 'USGS + JMA 551', 'urls': ['/health', '/api/events', '/api/history', '/ws']}
+    return {'service': 'GEOQUAKE KOREA backend', 'phase': 'USGS + JMA 551 + KMA getEqkMsg', 'urls': ['/health', '/api/events', '/api/history', '/ws']}
 
 
 @app.get('/health')
 async def health():
     return {'service': 'ok', 'usgs': snapshot['sources']['USGS']['state'],
+            'kma': snapshot['sources']['KMA']['state'],
+            'kmaConfigured': KMA_CONFIGURED,
+            'kmaCount': len(kma_records),
+            'kmaLastCheckedAt': snapshot['sources']['KMA'].get('checkedAt'),
             'jma': snapshot['sources']['JMA']['state'],
             'jmaConnected': snapshot['sources']['JMA'].get('connected', False),
             'jmaCount': len(jma_records),

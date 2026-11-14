@@ -21,8 +21,8 @@ class Tests(unittest.TestCase):
     def test_nan(self):self.assertIsNone(num(float('nan')))
     def test_bad_feed(self):
         with self.assertRaises(ValueError):parse_usgs({'features':[]})
-    def test_kma_jma_pending(self):
-        self.assertEqual(make_snapshot()['sources']['KMA']['state'],'pending')
+    def test_kma_unconfigured_jma_pending(self):
+        self.assertEqual(make_snapshot()['sources']['KMA']['state'],'unconfigured')
         self.assertEqual(make_snapshot()['sources']['JMA']['state'],'pending')
 if __name__=='__main__': unittest.main()
 
