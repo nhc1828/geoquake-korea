@@ -74,6 +74,7 @@
     // Reset bulletin rendering after changing the model origin so it displays the selected event's timestamp.
     document.getElementById('bulletin').dataset.runId='';
     labs.renderAll();
+    window.dispatchEvent(new CustomEvent('gq-live-selected',{detail:{event:e,history:cache.historyMode}}));
     document.querySelector('.settings .desc').textContent='현재 입력은 실제 지진의 발표 값입니다. 아래 계산·파면·색칠은 교육용 시뮬레이션이며 공식 관측·경보가 아닙니다.';
   }
   function alertMessage(head,msg,asNotification=false){
@@ -97,6 +98,7 @@
     cache.snapshot=data;
     cache.lastHttp=Date.now();
     sourceStatus();
+    window.dispatchEvent(new CustomEvent('gq-live-snapshot',{detail:{data,via,clientReceivedAt:Date.now()}}));
     if(!cache.historyMode){
       const old=cache.selected;
       updateSelect({preferLatest:!old});
@@ -105,6 +107,7 @@
     if(cache.connected)status('WebSocket 실시간 연결');
     else status(via==='http'?'HTTP 조회 연결 · WebSocket 재접속 중':'자료 수신 중');
     if(recentlyArrived.length){
+      window.dispatchEvent(new CustomEvent('gq-live-new',{detail:{events:recentlyArrived,via}}));
       const e=recentlyArrived.sort((a,b)=>Date.parse(b.occurredAt)-Date.parse(a.occurredAt))[0];
       const info=`${e.source} 발표 · M ${e.magnitude.toFixed(1)} · ${e.location} · 지진파와 색칠은 모형 재현입니다.`;
       alertMessage('새 지진 발표정보 수신 (공식 조기경보 아님)',info,true);
@@ -125,9 +128,9 @@
   function connect(){
     if(cache.ws && [WebSocket.CONNECTING,WebSocket.OPEN].includes(cache.ws.readyState))return;
     const socket=new WebSocket(WS_URL);cache.ws=socket;
-    socket.onopen=()=>{cache.connected=true;cache.retry=1500;status('WebSocket 실시간 연결');sourceStatus();};
-    socket.onmessage=evt=>{try{const p=JSON.parse(evt.data);if(p.type==='snapshot')incoming(p.data,'ws');}catch{status('지진정보 메시지 형식 오류',true);}};
-    socket.onclose=()=>{if(cache.ws!==socket)return;cache.connected=false;status('WebSocket 끊김 · 다시 연결 중',true);cache.retryTimer=setTimeout(connect,cache.retry);cache.retry=Math.min(30_000,Math.round(cache.retry*1.7));};
+    socket.onopen=()=>{cache.connected=true;cache.retry=1500;status('WebSocket 실시간 연결');sourceStatus();window.dispatchEvent(new CustomEvent('gq-live-transport',{detail:{state:'connected'}}));};
+    socket.onmessage=evt=>{try{const p=JSON.parse(evt.data);if(p.type==='snapshot')incoming(p.data,'ws');else if(p.type==='pong')window.dispatchEvent(new CustomEvent('gq-live-pong',{detail:p}));}catch{status('지진정보 메시지 형식 오류',true);}};
+    socket.onclose=()=>{if(cache.ws!==socket)return;cache.connected=false;status('WebSocket 끊김 · 다시 연결 중',true);window.dispatchEvent(new CustomEvent('gq-live-transport',{detail:{state:'disconnected'}}));cache.retryTimer=setTimeout(connect,cache.retry);cache.retry=Math.min(30_000,Math.round(cache.retry*1.7));};
     socket.onerror=()=>{if(socket.readyState===WebSocket.OPEN)socket.close();};
   }
   async function searchHistory(){
@@ -219,6 +222,7 @@
     }catch{}
     sourceStatus();fetchLatest();connect();
   }
-  window.GQLive={get observedMode(){return cache.observedMode;},getObserved,drawObservedFill};
+  window.GQLive={get observedMode(){return cache.observedMode;},getObserved,drawObservedFill,
+    get socket(){return cache.ws;},get snapshot(){return cache.snapshot;},get selected(){return selectedEvent();},get historyMode(){return cache.historyMode;}};
   init();
 })();

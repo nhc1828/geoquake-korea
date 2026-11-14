@@ -125,7 +125,7 @@ snapshot = make_snapshot()
 async def broadcast():
     if not clients:
         return
-    data = json.dumps({'type': 'snapshot', 'data': snapshot}, ensure_ascii=False)
+    data = json.dumps({'type': 'snapshot', 'data': snapshot, 'serverSentAt': now()}, ensure_ascii=False)
     sockets = list(clients)
     results = await asyncio.gather(*(sock.send_text(data) for sock in sockets), return_exceptions=True)
     for sock, res in zip(sockets, results):
@@ -158,6 +158,9 @@ async def collect_once(http):
         if len(response.content) > 8_000_000:
             raise ValueError('자료 용량 제한 초과')
         events = parse_usgs(response.json())
+        prior_seen = {e['id']:e.get('serverFirstSeenAt') for e in usgs_records}
+        for e in events:
+            e['serverFirstSeenAt'] = prior_seen.get(e['id']) or checked
         async with state_lock:
             usgs_records = events
             snapshot = {**snapshot, 'sources': {**snapshot['sources'], 'USGS': {
@@ -207,6 +210,8 @@ async def ingest_jma_551(raw, *, mode='stream', notify=True):
     """One P2P 551 bulletin. No assumptions that bulletin IDs identify a quake."""
     global snapshot
     event = parse_jma_551(raw, ingest_mode=mode)
+    if event:
+        event['serverFirstSeenAt'] = now()
     if not event or not recent_jma_record(event):
         return False
     async with state_lock:
@@ -336,6 +341,7 @@ async def collect_kma_once(http, auth_key):
                 is_correction = bool(event.get('correctionType') and
                                      any(word in event['correctionType'] for word in ('정정','취소','오보','수정')))
                 event['ingestMode'] = 'stream' if is_new and not is_correction else 'history'
+                event['serverFirstSeenAt'] = checked
                 kma_records[key] = event
                 imported += 1
         kma_seeded = True
@@ -405,7 +411,7 @@ async def root():
 
 @app.get('/health')
 async def health():
-    return {'service': 'ok', 'usgs': snapshot['sources']['USGS']['state'],
+    return {'service': 'ok', 'version': '3.0', 'wsHeartbeat': True, 'usgs': snapshot['sources']['USGS']['state'],
             'kma': snapshot['sources']['KMA']['state'],
             'kmaConfigured': KMA_CONFIGURED,
             'kmaCount': len(kma_records),
@@ -493,9 +499,19 @@ async def websocket(ws: WebSocket):
     await ws.accept()
     clients.add(ws)
     try:
-        await ws.send_json({'type': 'snapshot', 'data': snapshot})
+        await ws.send_json({'type': 'snapshot', 'data': snapshot, 'serverSentAt': now()})
         while True:
-            await ws.receive_text()
+            message = await ws.receive_text()
+            if len(message) > 2048:
+                continue
+            try:
+                payload = json.loads(message)
+            except (ValueError, TypeError):
+                continue
+            if isinstance(payload, dict) and payload.get('type') == 'ping':
+                stamp = payload.get('clientSent')
+                if isinstance(stamp, (int, float)) and not isinstance(stamp, bool) and 0 < stamp < 1e16:
+                    await ws.send_json({'type': 'pong', 'clientSent': stamp, 'serverAt': now()})
     except WebSocketDisconnect:
         pass
     finally:
