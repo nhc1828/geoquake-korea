@@ -135,7 +135,7 @@ function detailEvent(){const e=state.data?.events.find(x=>x.id===state.selected)
   const m=n(e.magnitude),dep=n(e.depthKm),url=validSourceUrl(e.url);
   $('selectedEvent').innerHTML=`<div class="selection-head"><strong>${esc(e.location)}</strong><span class="tag">${esc(e.source)}</span></div><div class="detail-grid"><div><small>규모 (Magnitude)</small><b>${m===null?'미제공':'M '+m.toFixed(1)}</b></div><div><small>진원 깊이</small><b>${dep===null?'미제공':dep+' km'}</b></div><div><small>발생시각 · 한국시간</small><b>${esc(isoTime(e.occurredAt))}</b></div><div><small>발표/갱신 시각 · 한국시간</small><b>${esc(isoTime(e.reportedAt))}</b></div><div><small>진앙 좌표</small><b>${hasCoords(e)?e.latitude.toFixed(3)+', '+e.longitude.toFixed(3):'미제공'}</b></div><div><small>${esc(e.intensityScale||'발표 최대진도')}</small><b>${esc(e.maxIntensity||'미제공')}</b></div></div>${url?`<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">기관 발표 원문 / 안내 보기 ↗</a>`:''}<div class="detail-note">발표 종류: ${esc(e.bulletinType)}${e.cancelled?' (취소 표기)':''}. 출처별 자료는 동일한 지진을 각각 발표할 수 있습니다.</div>`;
 }
-function selectEvent(id,pan=true){state.selected=id;renderEvents();renderMap();detailEvent();const e=state.data?.events.find(x=>x.id===id);if(pan&&e&&hasCoords(e)&&state.map)state.map.flyTo([e.latitude,e.longitude],Math.max(state.map.getZoom(),6),{duration:.4});}
+function selectEvent(id,pan=true){state.selected=id;renderEvents();renderMap();detailEvent();const e=state.data?.events.find(x=>x.id===id);if(pan&&e&&hasCoords(e)&&state.map)state.map.flyTo([e.latitude,e.longitude],Math.max(state.map.getZoom(),6),{duration:.4});if(e)window.dispatchEvent(new CustomEvent('gq-event-selected',{detail:{event:e}}));}
 function update(){if(!state.data)return;state.filtered=filters();renderSources();renderStats();renderEvents();renderMap();detailEvent();}
 function getWatch(){const place=$('placeSelect').value, parts=place==='custom'?[Number($('watchLat').value),Number($('watchLon').value)]:place.split(',').map(Number);if(parts.length!==2||!Number.isFinite(parts[0])||!Number.isFinite(parts[1])||Math.abs(parts[0])>90||Math.abs(parts[1])>180)return null;
   if(place==='custom'&&(!$('watchLat').value.trim()||!$('watchLon').value.trim()))return null;
@@ -180,6 +180,7 @@ function receiveSnapshot(data){
   newRecords(data);
   state.data=data;
   state.lastReceivedAt=Date.now();
+  window.dispatchEvent(new CustomEvent('gq-snapshot',{detail:{data}}));
   if(state.selected&&!data.events.some(event=>event.id===state.selected))state.selected=null;
   update();
   if(!state.selected&&state.filtered.length)selectEvent(state.filtered[0].id,false);
@@ -255,5 +256,29 @@ function bind(){for(const b of document.querySelectorAll('[data-tab]'))b.onclick
   $('notifyPermission').onclick=async()=>{if(!('Notification' in window))return toast('이 브라우저는 데스크톱 알림을 지원하지 않습니다.');if(!window.isSecureContext)return toast('HTTPS 환경에서 권한을 요청해 주세요.');const result=await Notification.requestPermission();$('notifyStatus').textContent=result==='granted'?'브라우저 알림 허용됨 · 새 자료가 감지되면 알립니다.':'알림 권한: '+result;};
 }
 function init(){bind();restoreWatch();mapSetup();updateWatchMarker();refresh();connectSocket();setInterval(refresh,FALLBACK_POLL_MS);setInterval(()=>{if(state.data)renderSources();},30000);setInterval(()=>{$('clock').textContent=new Date().toLocaleTimeString('ko-KR',{timeZone:'Asia/Seoul',hour12:false});},1000);tab(['lab','guide'].includes(location.hash.slice(1))?location.hash.slice(1):'monitor');}
+// The original v0.8 Lab is preserved byte-for-byte. Prefill its existing UI from a published quake.
+function launchLabWithEvent(event){
+  if(!event || !hasCoords(event) || n(event.magnitude)===null || n(event.depthKm)===null){
+    toast('위치·규모·깊이가 모두 있어야 기존 실험실에서 재생할 수 있습니다.');return;
+  }
+  tab('lab');
+  const frame=$('labFrame');
+  const prefill=()=>{
+    try{
+      const doc=frame.contentDocument;
+      if(!doc || !doc.getElementById('inputLat'))throw Error('실험실 로딩 중');
+      const fields={inputLat:event.latitude.toFixed(4),inputLon:event.longitude.toFixed(4),
+        inputMag:String(Math.max(0,Math.min(9.5,event.magnitude))),inputDepth:String(Math.max(0,Math.min(700,event.depthKm)))};
+      doc.getElementById('preset').value='custom';
+      for(const [id,value] of Object.entries(fields))doc.getElementById(id).value=value;
+      doc.getElementById('magOutput').textContent=Number(fields.inputMag).toFixed(1);
+      doc.getElementById('launchBtn').click();
+      toast('실제 발표된 진앙·규모·깊이로 교육용 모의실험을 시작했습니다. 공식 경보가 아닙니다.');
+    }catch(e){toast('실험실이 로드되지 않았습니다. 실험실 탭을 다시 선택해 주세요.');}
+  };
+  if(frame.contentDocument?.readyState==='complete')prefill();
+  else frame.addEventListener('load',prefill,{once:true});
+}
+window.GQViewer={state,selectEvent,launchLabWithEvent,apiBase:API_BASE};
 init();
 })();

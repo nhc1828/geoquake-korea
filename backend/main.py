@@ -1,7 +1,7 @@
 """GEOQUAKE KOREA 2단계. 발표 후 USGS 지진정보. 조기경보/예측이 아님."""
 import asyncio
 from contextlib import asynccontextmanager, suppress
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 import json
 import logging
 import math
@@ -9,13 +9,15 @@ import os
 
 import httpx
 import uvicorn
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger('geoquake')
 USGS_URL = 'https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/2.5_week.geojson'
+USGS_HISTORY_URL = 'https://earthquake.usgs.gov/fdsnws/event/1/query'
+HISTORY_CACHE = {}  # bounded, in-memory public FDSN results (no personalized data)
 POLL_SECONDS = max(60, int(os.getenv('USGS_POLL_SECONDS', '60')))
 ORIGINS = {'https://nhc1828.github.io', 'http://localhost:5500', 'http://127.0.0.1:5500'}
 clients = set()
@@ -158,7 +160,7 @@ app.add_middleware(CORSMiddleware, allow_origins=sorted(ORIGINS), allow_credenti
 
 @app.get('/')
 async def root():
-    return {'service': 'GEOQUAKE KOREA backend', 'phase': 'USGS pilot', 'urls': ['/health', '/api/events', '/ws']}
+    return {'service': 'GEOQUAKE KOREA backend', 'phase': 'USGS pilot', 'urls': ['/health', '/api/events', '/api/history', '/ws']}
 
 
 @app.get('/health')
@@ -171,6 +173,68 @@ async def health():
 async def events():
     return JSONResponse(snapshot, headers={'Cache-Control': 'no-store'})
 
+
+
+
+def history_params(start_date: date, end_date: date, minmag: float, limit: int):
+    """Validate dates before contacting USGS FDSN; avoid unbounded archive requests."""
+    if start_date > end_date or (end_date - start_date).days > 30:
+        raise ValueError('조회 날짜 차이는 0~30일이어야 합니다 (최대 31일 포함).')
+    if end_date > datetime.now(timezone.utc).date():
+        raise ValueError('미래의 날짜는 조회할 수 없습니다.')
+    if minmag < 2.5 or minmag > 9.5 or limit < 1 or limit > 150:
+        raise ValueError('규모 2.5~9.5, 조회 최대 150건을 지정해 주세요.')
+    return {
+        'format': 'geojson', 'starttime': start_date.isoformat(),
+        'endtime': (end_date + timedelta(days=1)).isoformat(),
+        'minmagnitude': str(minmag), 'limit': str(limit), 'orderby': 'time'
+    }
+
+
+@app.get('/api/history')
+async def historical_events(
+    start: date = Query(..., description='UTC start date YYYY-MM-DD'),
+    end: date = Query(..., description='UTC end date YYYY-MM-DD, inclusive'),
+    minmag: float = Query(4.0, ge=2.5, le=9.5),
+    limit: int = Query(150, ge=1, le=150)
+):
+    """On-demand historical USGS earthquake *events*, not observed intensity or issued warnings."""
+    try:
+        params = history_params(start, end, minmag, limit)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    key = (start.isoformat(), end.isoformat(), minmag, limit)
+    saved = HISTORY_CACHE.get(key)
+    if saved and (datetime.now(timezone.utc).timestamp() - saved[0]) < 600:
+        return JSONResponse(saved[1], headers={'Cache-Control': 'no-store'})
+    try:
+        async with httpx.AsyncClient(timeout=20, follow_redirects=False,
+                   headers={'User-Agent': 'GEOQUAKE-KOREA/2.0 (educational historical records)', 'Accept':'application/json'}) as http:
+            res = await http.get(USGS_HISTORY_URL, params=params)
+        if res.status_code == 204:
+            events, total = [], 0
+        else:
+            res.raise_for_status()
+            if len(res.content) > 8_000_000:
+                raise ValueError('과거 지진 조회 결과가 용량 제한을 초과했습니다.')
+            raw = res.json()
+            events = parse_usgs(raw)
+            total = raw.get('metadata',{}).get('count',len(events))
+            if not isinstance(total,int):
+                total = len(events)
+    except (httpx.HTTPError, ValueError, TypeError) as exc:
+        logger.warning('USGS historical query failed: %s', type(exc).__name__)
+        raise HTTPException(status_code=502, detail='USGS 과거 발생정보 조회에 실패했습니다. 연결 상태를 확인해 주세요.') from exc
+    payload = {
+        'schemaVersion':'1.0', 'source':'USGS', 'start':start.isoformat(),
+        'end':end.isoformat(), 'generatedAt':now(), 'events':events,
+        'returnedCount':len(events), 'totalCount':total, 'truncated':total>len(events),
+        'note':'발생정보입니다. 지역별 진도와 당시 실제 경보는 포함되지 않습니다.'
+    }
+    if len(HISTORY_CACHE)>100:
+        HISTORY_CACHE.clear()
+    HISTORY_CACHE[key]=(datetime.now(timezone.utc).timestamp(),payload)
+    return JSONResponse(payload, headers={'Cache-Control':'no-store'})
 
 @app.websocket('/ws')
 async def websocket(ws: WebSocket):

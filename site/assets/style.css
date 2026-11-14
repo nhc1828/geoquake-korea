@@ -3,3 +3,55 @@
 
 /* Lightweight canvas fallback if Leaflet or tile service cannot be reached. */
 .fallback-map-active{position:relative;isolation:isolate;overflow:hidden}.fallback-canvas{position:absolute;inset:0;display:block;width:100%;height:100%;cursor:crosshair}.mapcard:has(.fallback-map-active) #mapFallback{display:block;position:absolute;pointer-events:none;z-index:3;align-self:center;bottom:66px;background:#0b2030e8;border:1px solid #43687a;color:#c7dbe1;font-size:10px;border-radius:5px;padding:7px 11px;max-width:calc(100% - 28px);text-align:center}.mapcard{position:relative}
+
+/* GEOQUAKE 1.2: event-origin educational shaking reconstruction. Keep official and simulated information separate. */
+[hidden]{display:none!important}
+.impact-live-banner{display:flex;align-items:flex-start;gap:15px;padding:15px 18px;margin:14px 0 20px;background:#342b20;border:1px solid #90713e;border-left:4px solid #e7ab62;border-radius:10px;color:#fff3db;box-shadow:0 8px 22px #0002}
+.impact-live-icon{font-size:25px;color:#ffcf8b}.impact-live-banner>div:nth-child(2){flex:1}
+.impact-live-banner strong{font-size:15px}.impact-live-banner p{margin:6px 0;font-size:12px;line-height:1.6}.impact-live-banner small{color:#e0bb85;font-size:10px}
+.impact-live-banner button{background:transparent;color:#ffdfaa;border:0;font-size:24px;cursor:pointer}
+.impact-section{padding:20px 22px!important;margin-top:20px;margin-bottom:20px;display:block!important}
+.impact-head{display:flex;align-items:center;justify-content:space-between;gap:15px;margin-bottom:16px}
+.impact-head h2{font-size:19px;margin:5px 0 7px;color:#f1f6ff;letter-spacing:-.3px}.impact-head p{font-size:11px;color:#91a8bf;margin:0;line-height:1.7}
+.impact-kind{padding:7px 10px;color:#f3c68a;font-size:10px;white-space:nowrap;border:1px solid #977149;border-radius:20px;background:#433120}
+.impact-empty{padding:30px 15px;text-align:center;border:1px dashed #33465c;border-radius:9px;color:#95acc1;font-size:12px}
+.impact-event-head{display:flex;align-items:center;justify-content:space-between;gap:15px;border-top:1px solid #2b4154;padding:16px 0 13px}
+.impact-event-head strong{display:block;font-size:16px;color:#eff6ff}.impact-event-head small{display:block;color:#86a2b9;font-size:10px;margin-top:5px}
+.impact-actions{display:flex;gap:6px;flex-wrap:wrap}
+.impact-alert-sim{border-left:3px solid #d5a063;border-radius:5px;background:#282622;padding:11px 14px;font-size:12px;color:#f4d5a3;line-height:1.65;margin-bottom:13px}
+.impact-alert-sim.impact-low{border-left-color:#4da18e;background:#1c3437;color:#aee3d4}
+.impact-time-controls{display:flex;align-items:center;gap:12px;background:#101e2d;border:1px solid #2d4055;padding:10px 12px;border-radius:8px}
+.impact-time-label{min-width:110px}.impact-time-label b{font-family:Consolas,monospace;font-size:16px}.impact-time-label small{display:block;color:#82a0b5;font-size:9px}
+.impact-time-controls input[type=range]{flex:1;min-width:65px;accent-color:#73d7ce;cursor:pointer}
+.impact-time-controls select{width:72px;font-size:11px}
+.impact-results{display:grid;grid-template-columns:minmax(230px,0.9fr) minmax(290px,1.1fr);gap:14px;margin-top:14px}
+.impact-report,.impact-region-side{background:#0f1b29;border:1px solid #304052;border-radius:8px;padding:15px;min-width:0}
+.impact-report-label{font-size:9px;color:#8ba7be;letter-spacing:1px;margin-bottom:9px}.impact-point-info strong{display:block;font-size:17px}
+.impact-point-info .impact-intensity{font:700 31px Consolas,monospace;line-height:1.2;display:block;margin-top:6px}.impact-point-info p{font-size:11px;line-height:1.75;color:#b3c5d7}
+.impact-legend{display:flex;gap:14px;margin-top:12px;font-size:10px;color:#a3b9d0}.impact-legend i{width:9px;height:9px;display:inline-block;border-radius:50%;margin-right:5px}
+.impact-p-dot{background:#7bc8f6}.impact-s-dot{background:#ebb277}
+.impact-source-notice{border-top:1px solid #304154;padding-top:12px;margin-top:16px;font-size:10px;line-height:1.7;color:#a4b5c8}
+.impact-region-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding-bottom:9px;border-bottom:1px solid #304154}.impact-region-head strong{font-size:11px}
+.impact-region-head select{width:min(240px,62%);font-size:11px;padding:6px 7px}
+.impact-region-rows{max-height:305px;overflow:auto;padding-top:2px}.impact-region-row{width:100%;text-align:left;background:transparent;border:0;border-radius:0;border-bottom:1px solid #24364a;padding:9px 4px;display:grid;grid-template-columns:23px 1fr 55px 55px 78px;align-items:center;gap:7px;color:#dbe6f1}
+.impact-region-row:hover,.impact-region-row.active{background:#20374b}.impact-region-row .color{width:20px;height:20px;border-radius:5px;color:#0c1c27;font-weight:750;display:grid;place-items:center;font-size:10px}
+.impact-region-row .city{font-size:11px;font-weight:600}.impact-region-row .distance{font:10px Consolas,monospace;color:#9fb3c6}.impact-region-row .arrive{font:10px Consolas,monospace;color:#b3cee1}
+.impact-region-row .level{font-size:10px;text-align:right;color:#e4c38d}
+.impact-region-row .level.quiet{color:#7e9eb2}
+.impact-config{display:flex;align-items:center;flex-wrap:wrap;gap:10px 20px;border-top:1px solid #273e53;border-bottom:1px solid #273e53;padding:14px 0;margin-top:16px}
+.impact-config .toggleline{margin:0;font-size:12px}.impact-config small{color:#99adc1;flex:1;min-width:220px;font-size:10px;line-height:1.6}
+.impact-history{padding-top:20px}.impact-history-intro{display:flex;justify-content:space-between;align-items:center;gap:12px}
+.impact-history-intro h3{font-size:15px;margin:4px 0 9px}.impact-history-intro small{font-size:10px;color:#93aabb}
+.impact-history-form{display:flex;gap:10px;align-items:end;flex-wrap:wrap;padding:10px;background:#132236;border:1px solid #2b4259;border-radius:8px}
+.impact-history-form label{display:flex;flex:1;min-width:135px;flex-direction:column;font-size:10px;color:#9bb1c5;gap:6px}
+.impact-history-form input,.impact-history-form select{width:100%;font-size:12px;padding:8px}
+.impact-history-status{font-size:11px;color:#96adc0;line-height:1.6}
+.impact-history-results{max-height:245px;overflow:auto;display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.impact-history-record{border:1px solid #334d62;text-align:left;background:#112236;padding:11px 12px;border-radius:6px;color:#e3efff}
+.impact-history-record:hover{border-color:#58bcb5;background:#193145}
+.impact-history-record strong{display:block;font-size:11px;margin-bottom:5px}.impact-history-record small{color:#96aec4;font-size:10px}
+.impact-history-record .record-mag{color:#f2bb78;font-weight:700;margin-right:6px}
+.impact-disclaimer{font-size:10px;color:#a4b5c5;line-height:1.8;margin:16px 0 0;border-top:1px solid #324356;padding-top:13px}
+.impact-disclaimer strong{color:#eed0a3}
+@media(max-width:1000px){.impact-results{grid-template-columns:1fr}.impact-head{align-items:flex-start;flex-wrap:wrap}.impact-time-controls{flex-wrap:wrap}.impact-time-controls input[type=range]{flex-basis:35%}}
+@media(max-width:600px){.impact-section{padding:15px!important}.impact-head h2{font-size:17px}.impact-kind{white-space:normal}.impact-event-head{align-items:flex-start;flex-direction:column}.impact-region-row{grid-template-columns:22px 1fr 50px 49px 58px;gap:4px}.impact-history-results{grid-template-columns:1fr}.impact-history-form button{width:100%}}
