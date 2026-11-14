@@ -86,7 +86,7 @@
     if(!data || data.schemaVersion!=='1.0' || !Array.isArray(data.events) || !data.sources)return;
     const next=data.events.filter(e=>e && typeof e.id==='string' && allowed.has(e.source));
     const recentlyArrived=next.filter(e=>{
-      if(cache.known.has(e.id)||!cache.primed)return false;
+      if(cache.known.has(e.id)||!cache.primed||e.ingestMode==='history')return false;
       const last=Date.parse(e.reportedAt||e.updatedAt||e.occurredAt),origin=Date.parse(e.occurredAt);
       const fresh=Number.isFinite(last)?last:origin;
       return valid(e)&&Number.isFinite(fresh)&&Date.now()-fresh<=safetyWindowMs&&fresh<=Date.now()+60_000;
@@ -167,7 +167,7 @@
     const raw=e.observedRegions[id];if(!validatedObs(e,id,raw))return null;
     const val=(raw && typeof raw==='object')?raw.value:raw;
     const ix=id.startsWith('KR')?Number(val):JP.indexOf(String(val));
-    return {value:val,index:ix,scale:id.startsWith('KR')?'MMI':'JMA',kind:'official-observed'};
+    return {value:val,index:ix,scale:id.startsWith('KR')?'MMI':'JMA',kind:'prefecture-station-maximum'};
   }
   function drawObservedFill(){
     const map=labs.map,ctx=map.ctx,B=window.GQBoundaries;
@@ -191,7 +191,7 @@
     labs.map.dirty=true;
   }
   function toggleMode(){const e=selectedEvent();if(!hasObserved(e))return;cache.observedMode=!cache.observedMode;updateModeButton();labs.renderAll();
-    if(cache.observedMode)alertMessage('공식 관측진도 표시','관측 자료가 제공된 구역만 색칠하며, 나머지 구역은 미제공으로 표시합니다. 원래 모형 재현정보는 별도로 구분됩니다.');
+    if(cache.observedMode)alertMessage('일본 기상청 발표 관측진도 (P2PQuake 중계)','관측점이 보고된 도도부현만 해당 현의 최고 관측진도로 색칠합니다. 현 전체가 그 진도였다는 뜻은 아니며, 지역명만 있는 진도속보는 관측점으로 간주하지 않습니다. P·S파와 모형 속보는 교육용 계산입니다.');
   }
   function init(){
     // Existing lab canvas, map interactions, administrative boundaries, color legend and timeline remain intact.

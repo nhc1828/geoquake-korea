@@ -159,7 +159,7 @@ function watchPoint(){
 function onSnapshot(data){
   const ids = new Set((data.events||[]).map(x=>x.id));
   if(!state.primed){state.primed=true;ids.forEach(id=>state.seen.add(id));return;}
-  const additions=(data.events||[]).filter(e=>!state.seen.has(e.id));
+  const additions=(data.events||[]).filter(e=>!state.seen.has(e.id) && e.ingestMode!=='history');
   ids.forEach(id=>state.seen.add(id));
   if(!additions.length||!$('impactAutoAlert').checked||document.hidden)return;
   const watch=watchPoint();if(!watch)return;

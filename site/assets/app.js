@@ -147,7 +147,7 @@ function updateCustom(){$('customCoords').hidden=$('placeSelect').value!=='custo
 function updateWatchMarker(){if(state.fallback){fallbackDraw();return;}if(!state.map)return;if(state.watchMarker)state.map.removeLayer(state.watchMarker);const w=getWatch();if(!w)return;const size=11;state.watchMarker=L.marker([w.lat,w.lon],{icon:L.divIcon({className:'leaflet-custom-pin',html:`<div class="watchpin" style="width:${size}px;height:${size}px"></div>`,iconSize:[size,size],iconAnchor:[size/2,size/2]}),title:'관심 지역'}).addTo(state.map).bindPopup('관심 지역 · 반경 '+w.radius+'km, M '+w.min.toFixed(1)+' 이상');}
 function matchesWatch(e){const w=getWatch(),mag=n(e.magnitude);return w&&hasCoords(e)&&mag!==null&&!e.cancelled&&mag>=w.min&&distance({lat:e.latitude,lon:e.longitude},w)<=w.radius;}
 function newRecords(payload){const entries=payload.events||[];const fresh=[];
-  for(const e of entries){if(!state.known.has(e.id)&&state.initialized&&matchesWatch(e)){
+  for(const e of entries){if(!state.known.has(e.id)&&state.initialized&&e.ingestMode!=='history'&&matchesWatch(e)){
       const occurred=new Date(e.occurredAt).getTime(),reported=e.reportedAt?new Date(e.reportedAt).getTime():occurred;
       // Publication may have been updated after origin time. No alert for old backfills.
       const mostRecent=Math.max(occurred,reported);

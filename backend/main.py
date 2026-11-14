@@ -1,4 +1,4 @@
-"""GEOQUAKE KOREA 2단계. 발표 후 USGS 지진정보. 조기경보/예측이 아님."""
+"""GEOQUAKE KOREA 6A. USGS feed + JMA 551 P2PQuake relay; NOT EEW."""
 import asyncio
 from contextlib import asynccontextmanager, suppress
 from datetime import date, datetime, timedelta, timezone
@@ -6,6 +6,10 @@ import json
 import logging
 import math
 import os
+import random
+
+import websockets
+from jma_feed import parse_jma_551
 
 import httpx
 import uvicorn
@@ -17,10 +21,17 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger('geoquake')
 USGS_URL = 'https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/2.5_week.geojson'
 USGS_HISTORY_URL = 'https://earthquake.usgs.gov/fdsnws/event/1/query'
+JMA_WS_URL = 'wss://api.p2pquake.net/v2/ws'
+JMA_HISTORY_URL = 'https://api.p2pquake.net/v2/history'
+JMA_MAX_ITEMS = 300
+JMA_BOOTSTRAP_LIMIT = 100
 HISTORY_CACHE = {}  # bounded, in-memory public FDSN results (no personalized data)
 POLL_SECONDS = max(60, int(os.getenv('USGS_POLL_SECONDS', '60')))
 ORIGINS = {'https://nhc1828.github.io', 'http://localhost:5500', 'http://127.0.0.1:5500'}
 clients = set()
+state_lock = asyncio.Lock()
+usgs_records = []
+jma_records = {}  # P2PQuake 551 bulletin id -> normalized record; 1 replica only
 
 
 def now():
@@ -88,7 +99,7 @@ def make_snapshot():
         'schemaVersion': '1.0', 'generatedAt': None, 'lookbackDays': 7,
         'sources': {
             'KMA': {'state': 'pending', 'checkedAt': None, 'count': 0, 'message': '다음 단계에서 KMA 연결'},
-            'JMA': {'state': 'pending', 'checkedAt': None, 'count': 0, 'message': '다음 단계에서 JMA 연결'},
+            'JMA': {'state': 'pending', 'checkedAt': None, 'count': 0, 'connected': False, 'lastMessageAt': None, 'message': 'JMA 수신기 시작 대기'},
             'USGS': {'state': 'pending', 'checkedAt': None, 'count': 0, 'message': '첫 수신 대기'},
         },
         'events': [],
@@ -110,8 +121,20 @@ async def broadcast():
             clients.discard(sock)
 
 
-async def collect_once(http):
+def rebuild_snapshot_locked():
+    """Called only under state_lock. Keep independent USGS and JMA feeds."""
     global snapshot
+    for key, event in list(jma_records.items()):
+        if not recent_jma_record(event):
+            jma_records.pop(key, None)
+    records = usgs_records + list(jma_records.values())
+    snapshot['sources']['JMA']['count'] = len(jma_records)
+    records.sort(key=lambda e: e.get('occurredAt') or '', reverse=True)
+    snapshot = {**snapshot, 'generatedAt': now(), 'events': records}
+
+
+async def collect_once(http):
+    global snapshot, usgs_records
     checked = now()
     try:
         response = await http.get(USGS_URL)
@@ -119,18 +142,137 @@ async def collect_once(http):
         if len(response.content) > 8_000_000:
             raise ValueError('자료 용량 제한 초과')
         events = parse_usgs(response.json())
-        snapshot = {**snapshot, 'generatedAt': checked, 'events': events, 'sources': {
-            **snapshot['sources'], 'USGS': {'state': 'ok', 'checkedAt': checked, 'count': len(events), 'message': '최근 7일 M2.5 이상'}
-        }}
+        async with state_lock:
+            usgs_records = events
+            snapshot = {**snapshot, 'sources': {**snapshot['sources'], 'USGS': {
+                'state': 'ok', 'checkedAt': checked, 'count': len(events),
+                'message': '최근 7일 M2.5 이상 (USGS GeoJSON)'
+            }}}
+            rebuild_snapshot_locked()
         logger.info('USGS: %s events', len(events))
     except (httpx.HTTPError, ValueError, TypeError) as error:
-        # Keep the last successful data. Distinguish failure from zero earthquakes.
-        snapshot = {**snapshot, 'sources': {**snapshot['sources'], 'USGS': {
-            'state': 'error', 'checkedAt': checked, 'count': len(snapshot['events']),
-            'message': f'수집 실패 ({type(error).__name__}) · 이전 자료 유지'
-        }}}
+        async with state_lock:
+            snapshot = {**snapshot, 'sources': {**snapshot['sources'], 'USGS': {
+                'state': 'error', 'checkedAt': checked, 'count': len(usgs_records),
+                'message': f'수집 실패 ({type(error).__name__}) · 이전 자료 유지'
+            }}}
+            rebuild_snapshot_locked()
         logger.warning('USGS fetch failed: %s', type(error).__name__)
     await broadcast()
+
+
+async def set_jma_status(state, message, *, connected=False, message_at=None):
+    global snapshot
+    async with state_lock:
+        prev = snapshot['sources']['JMA']
+        snapshot = {**snapshot, 'sources': {**snapshot['sources'], 'JMA': {
+            'state': state, 'checkedAt': now(), 'count': len(jma_records),
+            'connected': connected,
+            'lastMessageAt': message_at or prev.get('lastMessageAt'),
+            'message': message[:140]
+        }}}
+        rebuild_snapshot_locked()
+    await broadcast()
+
+
+def recent_jma_record(event):
+    """Do not load indefinite history into RAM. Use bulletin receive time."""
+    value = event.get('updatedAt') or event.get('reportedAt') or event.get('occurredAt')
+    if not value:
+        return False
+    try:
+        updated = datetime.fromisoformat(value.replace('Z', '+00:00'))
+    except ValueError:
+        return False
+    return datetime.now(timezone.utc) - timedelta(days=7) <= updated <= datetime.now(timezone.utc) + timedelta(minutes=5)
+
+
+async def ingest_jma_551(raw, *, mode='stream', notify=True):
+    """One P2P 551 bulletin. No assumptions that bulletin IDs identify a quake."""
+    global snapshot
+    event = parse_jma_551(raw, ingest_mode=mode)
+    if not event or not recent_jma_record(event):
+        return False
+    async with state_lock:
+        if event['id'] in jma_records:
+            return False  # P2P may send the same message multiple times
+        jma_records[event['id']] = event
+        if len(jma_records) > JMA_MAX_ITEMS:
+            # Keep the latest bulletins by relay/official issue timestamp.
+            ordered = sorted(jma_records.values(), key=lambda e: e.get('updatedAt') or '', reverse=True)
+            jma_records.clear()
+            jma_records.update((e['id'], e) for e in ordered[:JMA_MAX_ITEMS])
+        prior = snapshot['sources']['JMA']
+        message_at = now() if mode == 'stream' else prior.get('lastMessageAt')
+        snapshot = {**snapshot, 'sources': {**snapshot['sources'], 'JMA': {
+            **prior, 'count': len(jma_records), 'checkedAt': now(),
+            'lastMessageAt': message_at,
+            'message': 'P2PQuake 551 실시간 수신' if mode == 'stream' else 'JMA 최근 발표 복구 · WebSocket 수신 대기'
+        }}}
+        rebuild_snapshot_locked()
+    if notify:
+        await broadcast()
+    logger.info('JMA 551: %s · %d station regions (%s)', event['id'], len(event['observedRegions']), mode)
+    return True
+
+
+async def seed_jma_history(http):
+    """Fetch up to 100 recent bulletins *after* WS connection to reduce gaps."""
+    resp = await http.get(JMA_HISTORY_URL, params={'codes': '551', 'limit': JMA_BOOTSTRAP_LIMIT})
+    resp.raise_for_status()
+    if len(resp.content) > 3_000_000:
+        raise ValueError('JMA history payload too large')
+    rows = resp.json()
+    if not isinstance(rows, list):
+        raise ValueError('JMA history schema mismatch')
+    added = 0
+    # Ingest oldest first. Clients suppress alerts for mode=history.
+    for item in reversed(rows):
+        if isinstance(item, dict) and item.get('code') == 551:
+            added += int(await ingest_jma_551(item, mode='history', notify=False))
+    if added:
+        await broadcast()
+    logger.info('JMA: recovered %s historical bulletins (from %s)', added, len(rows))
+    return added
+
+
+async def jma_ws_loop():
+    """ONE upstream WebSocket per Railway replica. Reconnect with backoff."""
+    retry = 1.5
+    await set_jma_status('pending', 'P2PQuake WebSocket 연결 중')
+    while True:
+        try:
+            async with websockets.connect(
+                JMA_WS_URL, open_timeout=18, ping_interval=25,
+                ping_timeout=25, close_timeout=8, max_size=1_000_000
+            ) as upstream:
+                retry = 1.5
+                await set_jma_status('ok', 'P2PQuake WebSocket 연결 · 새 551 발표 대기', connected=True)
+                try:
+                    async with httpx.AsyncClient(timeout=15, follow_redirects=False,
+                            headers={'User-Agent': 'GEOQUAKE-KOREA/6A educational',
+                                     'Accept': 'application/json'}) as http:
+                        await seed_jma_history(http)
+                except (httpx.HTTPError, ValueError, TypeError) as exc:
+                    logger.warning('JMA backfill failed: %s', type(exc).__name__)
+                    # The WS connection itself stays active even if history fails.
+                    await set_jma_status('ok', 'WebSocket 수신 중 · 초기 기록 복구 실패', connected=True)
+                async for message in upstream:
+                    if not isinstance(message, str) or len(message) > 1_000_000:
+                        continue
+                    try:
+                        payload = json.loads(message)
+                    except (json.JSONDecodeError, ValueError):
+                        logger.warning('JMA invalid JSON frame')
+                        continue
+                    if isinstance(payload, dict) and payload.get('code') == 551:
+                        await ingest_jma_551(payload, mode='stream')
+                    # 554/556/552 are NOT 551 and must never become event alerts here.
+        except Exception as exc:
+            logger.warning('JMA WebSocket disconnected: %s', type(exc).__name__)
+        await set_jma_status('error', 'P2PQuake 연결 끊김 · 자동 재접속 중 (이전 발표 보존)')
+        await asyncio.sleep(retry + random.uniform(0, 0.9))
+        retry = min(60, retry * 1.8)
 
 
 async def poll_loop():
@@ -143,12 +285,17 @@ async def poll_loop():
 
 @asynccontextmanager
 async def lifespan(app):
-    task = None if os.getenv('GEOQUAKE_DISABLE_POLL') == '1' else asyncio.create_task(poll_loop())
+    tasks = []
+    if os.getenv('GEOQUAKE_DISABLE_POLL') != '1':
+        tasks.append(asyncio.create_task(poll_loop(), name='usgs-poll'))
+    if os.getenv('GEOQUAKE_DISABLE_JMA') != '1':
+        tasks.append(asyncio.create_task(jma_ws_loop(), name='jma-relay'))
     try:
         yield
     finally:
-        if task:
+        for task in tasks:
             task.cancel()
+        for task in tasks:
             with suppress(asyncio.CancelledError):
                 await task
 
@@ -160,12 +307,16 @@ app.add_middleware(CORSMiddleware, allow_origins=sorted(ORIGINS), allow_credenti
 
 @app.get('/')
 async def root():
-    return {'service': 'GEOQUAKE KOREA backend', 'phase': 'USGS pilot', 'urls': ['/health', '/api/events', '/api/history', '/ws']}
+    return {'service': 'GEOQUAKE KOREA backend', 'phase': 'USGS + JMA 551', 'urls': ['/health', '/api/events', '/api/history', '/ws']}
 
 
 @app.get('/health')
 async def health():
     return {'service': 'ok', 'usgs': snapshot['sources']['USGS']['state'],
+            'jma': snapshot['sources']['JMA']['state'],
+            'jmaConnected': snapshot['sources']['JMA'].get('connected', False),
+            'jmaCount': len(jma_records),
+            'jmaLastMessageAt': snapshot['sources']['JMA'].get('lastMessageAt'),
             'lastGeneratedAt': snapshot['generatedAt'], 'connections': len(clients)}
 
 
