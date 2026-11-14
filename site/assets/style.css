@@ -55,3 +55,7 @@
 .impact-disclaimer strong{color:#eed0a3}
 @media(max-width:1000px){.impact-results{grid-template-columns:1fr}.impact-head{align-items:flex-start;flex-wrap:wrap}.impact-time-controls{flex-wrap:wrap}.impact-time-controls input[type=range]{flex-basis:35%}}
 @media(max-width:600px){.impact-section{padding:15px!important}.impact-head h2{font-size:17px}.impact-kind{white-space:normal}.impact-event-head{align-items:flex-start;flex-direction:column}.impact-region-row{grid-template-columns:22px 1fr 50px 49px 58px;gap:4px}.impact-history-results{grid-template-columns:1fr}.impact-history-form button{width:100%}}
+
+/* Step 5 live map navigation */
+.nav a.navbtn:hover{color:#b4f4ec;background:#19364a}
+@media(max-width:770px){.nav{grid-template-columns:repeat(4,minmax(0,1fr))}.nav a.navbtn{font-size:10px;padding:8px 3px;text-align:center;justify-content:center}}

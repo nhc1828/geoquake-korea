@@ -221,7 +221,7 @@ $('impactCountry').onchange=()=>{state.country=$('impactCountry').value;
   if(!state.rows.some(r=>r.id===state.selected&&r.country===state.country))state.selected=state.rows.find(r=>r.country===state.country)?.id;
   drawReport();renderOverlay();};
 $('impactRegionRows').onclick=e=>{const b=e.target.closest('[data-imp-id]');if(b)selectPoint(b.dataset.impId);};
-$('impactLaunchLab').onclick=()=>{if(state.event)V.launchLabWithEvent(state.event);};
+$('impactLaunchLab').onclick=()=>{if(!state.event)return;try{sessionStorage.setItem('geoquake:live-selection',JSON.stringify(state.event));}catch{}window.location.href='./live/';};
 $('impactMapToggle').onclick=()=>{state.overlay=!state.overlay;
   if(!state.overlay){if(state.layer&&V.state.map)V.state.map.removeLayer(state.layer);state.layer=null;state.pWave=null;state.sWave=null;
     $('impactMapToggle').textContent='지도에 모형 진도 표시';$('impactMapToggle').setAttribute('aria-pressed','false');}

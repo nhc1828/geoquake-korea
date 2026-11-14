@@ -20,7 +20,8 @@
     </a>
     <nav class="nav" aria-label="주요 화면">
       <button class="navbtn active" type="button" data-tab="monitor" aria-pressed="true">◉ 모니터링</button>
-      <button class="navbtn" type="button" data-tab="lab" aria-pressed="false">◈ 실험실 LAB</button>
+      <a class="navbtn" href="./live/" style="text-decoration:none;display:inline-flex;align-items:center">◈ 실시간 진도 지도</a>
+      <button class="navbtn" type="button" data-tab="lab" aria-pressed="false">▤ 실험실 LAB</button>
       <button class="navbtn" type="button" data-tab="guide" aria-pressed="false">ⓘ 데이터 안내</button>
     </nav>
     <div class="topright"><span class="livepoint" aria-hidden="true"></span><span id="globalStatus">자료 수신 대기</span><time id="clock" class="clock">--:--:--</time></div>
@@ -96,7 +97,7 @@
         <div id="impactActive" hidden>
           <div class="impact-event-head">
             <div><strong id="impactTitle">—</strong><small id="impactEventMeta">—</small></div>
-            <div class="impact-actions"><button id="impactLaunchLab" class="button small" type="button">이 지진을 실험실에서 재생</button><button id="impactMapToggle" class="button small" type="button" aria-pressed="false">지도에 진도 표시</button><button id="impactReset" class="button small" type="button">처음으로</button></div>
+            <div class="impact-actions"><button id="impactLaunchLab" class="button small" type="button">실험실형 진도 지도에서 보기</button><button id="impactMapToggle" class="button small" type="button" aria-pressed="false">지도에 진도 표시</button><button id="impactReset" class="button small" type="button">처음으로</button></div>
           </div>
           <div class="impact-alert-sim" id="impactReconstruction" role="status"></div>
           <div class="impact-time-controls">
