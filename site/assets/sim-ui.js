@@ -4,8 +4,8 @@
  */
 'use strict';
 (() => {
-const S=window.GQSimCore,I=window.GQIntensityModel;
-if(!S||!I)throw Error('Simulation modules missing');
+const S=window.GQSimCore,I=window.GQIntensityModel,B=window.GQBroadcast;
+if(!S||!I||!B)throw Error('Simulation or broadcast module missing');
 const $=id=>document.getElementById(id);
 const presets={
  kyushu:{name:'큐슈 북부 (가상)',lat:33.65,lon:130.25,magnitude:6.4,depthKm:20},
@@ -33,10 +33,10 @@ function showMode(){state.active=true;document.getElementById('application').cla
 function stop(){state.active=false;state.playing=false;state.run=null;state.event=null;state.picking=null;state.realAlert=null;state.bulletinFired=false;
  $('simSidebar').hidden=true;$('liveSidebar').hidden=false;$('simBanner').hidden=true;$('simTransport').hidden=true;$('simBulletin').hidden=true;$('simRealtimeNotice').hidden=true;$('simPickNote').hidden=true;
  $('navExperiment').classList.remove('active');$('navExperiment').setAttribute('aria-pressed','false');document.getElementById('application').classList.remove('sim-active','real-alert-open');
- window.speechSynthesis?.cancel?.();window.GQRealMap?.setSimulationFrame(null);window.GQMapLive?.resync?.();
+ B.stop();window.GQRealMap?.setSimulationFrame(null);window.GQMapLive?.resync?.();
 }
 function toggle(){state.active?stop():showMode();}
-function invalidate(){if(!state.active)return;state.playing=false;state.run=null;state.event=null;state.bulletinFired=false;state.time=0;state.lastFeedSig='';
+function invalidate(){if(!state.active)return;B.stop();state.playing=false;state.run=null;state.event=null;state.bulletinFired=false;state.time=0;state.lastFeedSig='';
  $('simTransport').hidden=true;$('simBulletin').hidden=true;$('simError').textContent='';$('simFeedCount').textContent='0건';$('simFeed').innerHTML='<p>조건을 바꿨습니다. 새 실험을 시작하세요.</p>';
  initBlankMap();}
 function picks(mode){if(!state.active)return;state.picking=state.picking===mode?null:mode;
@@ -54,22 +54,26 @@ function makeSimEvent(origin){return {id:'SIM:'+Date.now().toString(36),source:'
  location:origin.name,occurredAt:new Date().toISOString(),reportedAt:null,bulletinType:'모의 지진 발생',observationsVerified:false,observedRegions:{}};}
 function armaudio(){if(!$('simSound').checked)return;const AudioCtx=window.AudioContext||window.webkitAudioContext;
  if(!AudioCtx)return;try{if(!state.soundCtx)state.soundCtx=new AudioCtx();state.soundCtx.resume?.().catch(()=>{});}catch{}}
-function playTrainingSound(){if(!$('simSound').checked)return;const a=state.soundCtx;if(!a||a.state!=='running')return;
- // Original training-only chime; NOT a copy of any governmental EEW tone.
- const t=a.currentTime+0.05;const seq=[[660,0,.18],[830,.26,.2],[660,.54,.23],[440,.90,.35]];
- for(const [hz,offset,duration] of seq){const osc=a.createOscillator(),gain=a.createGain();osc.type='triangle';osc.frequency.value=hz;
-   gain.gain.setValueAtTime(.0001,t+offset);gain.gain.exponentialRampToValueAtTime(.052,t+offset+.03);gain.gain.exponentialRampToValueAtTime(.0001,t+offset+duration);
-   osc.connect(gain);gain.connect(a.destination);osc.start(t+offset);osc.stop(t+offset+duration+.05);
- }
+function broadcastData(run=state.run){if(!run)return null;
+  return B.fromSimulation(run,S.predicted);
 }
-function speakTraining(){if(!$('simVoice').checked||!window.speechSynthesis||!window.SpeechSynthesisUtterance)return;
- try{window.speechSynthesis.cancel();const o=state.run?.origin;const msg=o?`훈련, 훈련. 모의 지진속보입니다. 실제 경보가 아닙니다. 가상 진앙 ${o.name} 부근, 설정 규모 ${o.magnitude.toFixed(1)}, 깊이 ${o.depthKm} 킬로미터. 예상진도는 교육용 계산입니다.`:'훈련, 훈련. 경고음 테스트입니다. 실제 경보가 아닙니다.';const utterance=new SpeechSynthesisUtterance(msg);
- utterance.lang='ko-KR';utterance.rate=1.02;utterance.volume=.8;window.speechSynthesis.speak(utterance);}catch{}}
-function setupRun(){const origin=source();$('simError').textContent='';
+function setBroadcastText(run=state.run){const data=broadcastData(run);
+ const script=B.fill('training',data);
+ $('simBroadcastText').textContent=script?script.text:'진도 예측에 필요한 정보가 없어 대본을 완성할 수 없습니다.';
+ return script;
+}
+async function trainingBroadcast(run=state.run){if(!run)return;
+ const script=setBroadcastText(run);
+ if(!script){$('simError').textContent='훈련 방송용 지역별 진도 자료가 부족합니다.';return;}
+ armaudio();
+ await B.perform(script,{ctx:state.soundCtx,sound:$('simSound').checked,voice:$('simVoice').checked,
+  onStage:status=>{$('simBroadcastStage').textContent=status;}});
+}
+function setupRun(){B.stop();const origin=source();$('simError').textContent='';
  if(!S.validOrigin(origin)){$('simError').textContent='유효한 진앙·규모·깊이를 입력하세요.';return false;}
  if(!state.regions.length){$('simError').textContent='가상 관측망 자료를 아직 불러오지 못했습니다.';return false;}
  try{state.run=S.build(origin,getStations(),state.custom);}catch(e){$('simError').textContent=e.message;return false;}
- state.event=makeSimEvent(origin);state.time=0;state.playing=true;state.bulletinFired=false;state.lastTick=performance.now();state.lastDraw=0;state.lastFeedSig='';state.selected=state.run.firstStation.id;
+ state.event=makeSimEvent(origin);state.run.origin.occurredAt=state.event.occurredAt;setBroadcastText(state.run);$('simBroadcastStage').textContent='방송 대기 · 최초 경보 2회 연속';state.time=0;state.playing=true;state.bulletinFired=false;state.lastTick=performance.now();state.lastDraw=0;state.lastFeedSig='';state.selected=state.run.firstStation.id;
  $('simTransport').hidden=false;$('simBulletin').hidden=true;$('simRealtimeNotice').hidden=true;$('simTimeline').max=state.run.duration;$('simTimeline').value=0;
  $('simSpeed').value=String(state.speed);$('simFeed').innerHTML='<p>첫 가상 P파 감지를 기다리고 있습니다.</p>';state.realAlert=null;
  armaudio();
@@ -130,13 +134,13 @@ function render(time,forceMap=false){if(!state.run)return;state.time=Math.max(0,
  if(forceMap||performance.now()-state.lastDraw>110){frameMap();state.lastDraw=performance.now();}
 }
 function tick(now){if(state.active&&state.run&&state.playing){const old=state.time,dt=Math.max(0,Math.min(0.25,(now-state.lastTick)/1000));state.time=Math.min(state.run.duration,old+dt*state.speed);
- if(!state.bulletinFired && old<state.run.firstP && state.time>=state.run.firstP){state.bulletinFired=true;showBulletin();playTrainingSound();speakTraining();}
+ if(!state.bulletinFired && old<state.run.firstP && state.time>=state.run.firstP){state.bulletinFired=true;showBulletin();trainingBroadcast();}
  if(state.time>=state.run.duration)state.playing=false;render(state.time);
  }state.lastTick=now;requestAnimationFrame(tick)}
 function fireBulletinByButton(next){if(!state.run||state.bulletinFired||state.time>=state.run.firstP||next<state.run.firstP)return;
- state.bulletinFired=true;armaudio();playTrainingSound();speakTraining();
+ state.bulletinFired=true;showBulletin();trainingBroadcast();
 }
-function replay(){if(!state.run)return;state.time=0;state.playing=true;state.bulletinFired=false;window.speechSynthesis?.cancel?.();render(0,true)}
+function replay(){if(!state.run)return;B.stop();state.time=0;state.playing=true;state.bulletinFired=false;render(0,true)}
 function setPlaying(){if(!state.run)return;if(!state.playing&&state.time>=state.run.duration){replay();return;}state.playing=!state.playing;state.lastTick=performance.now();render(state.time)}
 function download(){if(!state.run)return;const r=state.run;const obj={schemaVersion:'4.2',kind:'simulation-not-real-observation',simulated:true,model:'v0.8 homogeneous P=6km/s S=3.5km/s, uncalibrated intensity proxy',
   origin:r.origin,simulatedTimeSeconds:state.time,firstP:r.firstP,firstVirtualStation:r.firstStation.id,stations:r.arrivals.map(x=>({id:x.id,name:x.name,lat:x.lat,lon:x.lon,p:x.arrival.p,s:x.arrival.s,predictedIntensity:S.predicted(r.origin,x)})),events:S.at(r,state.time).events.map(e=>({time:e.time,kind:e.kind,stationId:e.id}))};
@@ -164,7 +168,9 @@ function bind(){
  $('simExport').onclick=download;
  $('simTabFeed').onclick=()=>showTab('feed');$('simTabRegions').onclick=()=>showTab('regions');$('simCountrySelect').onchange=renderRegions;
  $('simRegionList').onclick=e=>{const b=e.target.closest('[data-sim-region]');if(b)selectPoint(b.dataset.simRegion)};
- $('simAudioTest').onclick=()=>{armaudio();playTrainingSound();if($('simVoice').checked)speakTraining()};
+ $('simAudioTest').onclick=()=>{armaudio();B.stop();B.toneBurst(state.soundCtx,'training')};
+ $('simBroadcastTest').onclick=()=>{armaudio();if(!state.run){$('simError').textContent='먼저 모의 지진 발생을 눌러 실험을 시작하세요.';return;}showBulletin();trainingBroadcast()};
+ $('simBroadcastStop').onclick=()=>{B.stop();$('simBroadcastStage').textContent='방송 중지';};
  $('simFill').onchange=()=>{if(state.active&&state.run){window.GQRealMap?.setSnapshot({events:[state.event],event:state.event,mode:$('simFill').checked?'model':'off'});frameMap()}};
  for(const id of ['simWaves','simSensors'])$(id).onchange=frameMap;
  $('simBulletinClose').onclick=()=>{const hidden=!$('simBulletinBody').hidden;$('simBulletinBody').hidden=hidden;$('simBulletinClose').textContent=hidden?'+':'−'};

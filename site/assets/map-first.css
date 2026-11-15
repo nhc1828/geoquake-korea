@@ -147,3 +147,9 @@
 .sim-bulletin-language{display:grid;grid-template-columns:1fr 1fr 1fr;gap:5px;margin-top:11px}
 .sim-bulletin-language span{padding:7px 5px;border-radius:4px;text-align:center;background:#2a3e53;color:#e7d3af;font-size:9px}
 @media(max-width:750px){.sim-bulletin-maxima strong{font-size:20px}.sim-bulletin-language span{font-size:8px}}
+
+/* 4.3 방송 대본 표기 · training only */
+.sim-broadcast-detail{border-top:1px solid #405979;margin-top:10px;padding-top:8px;color:#d8e6f2}
+.sim-broadcast-detail summary{cursor:pointer;font-size:11px;font-weight:650;color:#b6e4d8}
+.sim-broadcast-script{white-space:pre-wrap;max-height:180px;overflow:auto;background:#0d1d2bd9;padding:9px;margin:8px 0;border-radius:6px;font-size:11px;line-height:1.7}
+#simBroadcastStage{font-size:10px;color:#ffdb9c;margin-top:7px;font-weight:650}

@@ -6,13 +6,14 @@
   <meta name="theme-color" content="#091521">
   <meta name="description" content="GEOQUAKE KOREA — 실제 KMA·JMA·USGS 지진 발표정보를 실시간으로 받아 지도와 알림으로 보여주는 웹 기반 모니터링 서비스.">
   <title>GEOQUAKE KOREA | 실시간 지진·통합 실험실</title>
-  <link rel="stylesheet" href="./assets/map-first.css?v=4.2.0">
+  <link rel="stylesheet" href="./assets/map-first.css?v=4.3.0">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@6.16.0/dist/maplibre-gl.css">
   <script defer src="./assets/map-first-core.js?v=4.2.0"></script>
   <script defer src="./assets/intensity-model.js?v=4.2.0"></script>
   <script defer src="./assets/sim-core.js?v=4.2.0"></script>
   <script defer src="./assets/map-first.js?v=4.2.0"></script>
-  <script defer src="./assets/sim-ui.js?v=4.2.0"></script>
+  <script defer src="./assets/broadcast-script.js?v=4.3.0"></script>
+  <script defer src="./assets/sim-ui.js?v=4.3.0"></script>
   <script type="module" src="./assets/real-map.js?v=4.2.0"></script>
 </head>
 <body>
@@ -21,7 +22,7 @@
     <header class="side-top">
       <span class="brand-symbol" aria-hidden="true"><svg viewBox="0 0 40 40"><path d="M2 21h7l5-13 8 25 6-17 4 5h6" fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/></svg></span>
       <div class="brand-type"><strong>GEOQUAKE <em>KOREA</em></strong><span>REAL-TIME EARTHQUAKE MONITOR</span></div>
-      <span class="version">4.2</span>
+      <span class="version">4.3</span>
     </header>
     <div id="liveSidebar" class="live-sidebar">
     <div class="sidebar-title"><span><span class="live-dot"></span> 최근 실제 지진 발표</span><span class="tiny-tag">KMA · JMA · USGS</span></div>
@@ -64,8 +65,10 @@
           <label class="sim-check"><input type="checkbox" id="simWaves" checked> P·S파 전파 표시</label>
           <label class="sim-check"><input type="checkbox" id="simSensors" checked> 가상 관측점 표시</label>
           <label class="sim-check"><input type="checkbox" id="simSound" checked> 모의 긴급 경고음 재생</label>
-          <label class="sim-check"><input type="checkbox" id="simVoice" checked> 모의실험 음성 고지 (지원 브라우저)</label>
-          <button id="simLaunch" type="submit" class="sim-launch">▶ 모의 지진 발생</button><button type="button" id="simAudioTest" class="sim-outline-btn">♪ 훈련용 경고음 테스트</button>
+          <label class="sim-check"><input type="checkbox" id="simVoice" checked> 훈련 대본 2회 연속 방송 (지원 브라우저)</label>
+          <button id="simLaunch" type="submit" class="sim-launch">▶ 모의 지진 발생</button><button type="button" id="simAudioTest" class="sim-outline-btn">♪ 3회 경고음 테스트</button>
+          <button type="button" id="simBroadcastTest" class="sim-outline-btn">▶ 전체 훈련방송 시험 (2회)</button>
+          <button type="button" id="simBroadcastStop" class="sim-outline-btn">■ 방송 중지</button>
           <p class="sim-form-error" id="simError" role="status"></p>
         </form>
         <details class="sim-extra" id="simExtra"><summary>관심 지점 추가 (최대 5곳)</summary>
@@ -107,7 +110,9 @@
         <div class="sim-bulletin-maxima"><div><span>한국 최대 모형진도 · MMI</span><strong id="simMaxKR">—</strong><small id="simMaxKRPlace">—</small></div><div><span>일본 최대 모형진도 · JMA</span><strong id="simMaxJP">—</strong><small id="simMaxJPPlace">—</small></div></div>
         <div class="sim-bulletin-rows"><span>최초 가상 P파 감지 <b id="simFirstStation">—</b></span><span>선택 지점 S파 <b id="simSCountdown">—</b></span></div>
         <div class="sim-bulletin-language"><span lang="ko">훈련 · 첫 P파 감지</span><span lang="en">TRAINING · First P-wave</span><span lang="ja">訓練 · P波初期検知</span></div>
-        <p>모형에서 P파 최초 감지 시 표시되는 훈련 메시지입니다. 실제 관측 또는 공식 긴급지진속보가 아닙니다.</p></div>
+        <p>모형에서 P파 최초 감지 시 표시되는 훈련 메시지입니다. 실제 관측 또는 공식 긴급지진속보가 아닙니다.</p>
+        <div id="simBroadcastStage" role="status" aria-live="polite">방송 대기 · 최초 경보 2회 연속</div>
+        <details class="sim-broadcast-detail"><summary>훈련 방송 대본 확인</summary><div id="simBroadcastText" class="sim-broadcast-script">실험 시작 후 실제 입력값을 채워 표시합니다.</div></details></div>
       <div class="sim-bulletin-foot">훈련 · TRAINING · 訓練　|　실제 경보 아님</div>
     </section>
     <div class="sim-transport" id="simTransport" hidden><button type="button" id="simReset">↺</button><button type="button" id="simPlay">Ⅱ 일시정지</button><button type="button" id="simNext">다음 관측 ›</button><button type="button" id="simFirst">첫 감지</button><div class="sim-time"><strong id="simClock">T+0.0s</strong><span id="simPhase">첫 P파 감지 전</span></div><input type="range" id="simTimeline" min="0" max="300" step="0.01" value="0" aria-label="모의 시점 이동"><select id="simSpeed" aria-label="재생 배속"><option value="1">1×</option><option value="2">2×</option><option value="5" selected>5×</option><option value="10">10×</option><option value="30">30×</option></select><button type="button" id="simExport" title="모의기록 JSON 저장">↓ 기록</button></div>
