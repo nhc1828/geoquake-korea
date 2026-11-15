@@ -31,6 +31,7 @@ let queued=false;
 function syncRealMap(){
   const engine=window.GQRealMap;
   if(!engine)return;
+  if(window.GQSimulator?.isActive()){window.GQSimulator.syncMap();return;}
   engine.setSnapshot({events:getVisibleEvents(),event:selectedEvent(),mode:state.intensityMode});
 }
 const map={};
@@ -94,7 +95,8 @@ function renderDetails(){const e=selectedEvent();$('eventDetail').hidden=!e||!st
   const obs=C.observedRegions(e);$('detailNote').textContent=obs.length?`JMA 관측점 최고진도가 제공된 도도부현 ${obs.length}곳을 색칠합니다. 현 전체의 흔들림을 뜻하지 않습니다. 세 언어의 지명은 원문을 그대로 표시합니다.`:'지명은 기관 발표 원문입니다. 해당 사건의 지역별 검증된 관측진도는 수신 자료에 없어 임의로 색칠하지 않습니다.';
   const url=C.safeSourceUrl(e.url);$('sourceLink').hidden=!url;if(url)$('sourceLink').href=url;
 }
-function choose(id,follow=false){const e=state.snapshot?.events.find(a=>a.id===id);if(!e)return;state.selectedId=e.id;state.heroId=e.id;state.detailsVisible=true;
+function choose(id,follow=false){const e=state.snapshot?.events.find(a=>a.id===id);if(!e)return;
+  if(window.GQSimulator?.isActive())window.GQSimulator.stop();state.selectedId=e.id;state.heroId=e.id;state.detailsVisible=true;
   renderHero();renderList();renderDetails();if(follow&&C.hasCoords(e))goTo(e.longitude,e.latitude,18);map.dirty=true;
 }
 function sourceFilter(key){state.source=key;document.querySelectorAll('.source-filter').forEach(b=>{const a=b.dataset.source===key;b.classList.toggle('active',a);b.setAttribute('aria-pressed',String(a))});
@@ -124,8 +126,8 @@ function newEventsFrom(data){const current=data.events.filter(C.validEvent);if(!
     if(state.recentAlerts.length>60)state.recentAlerts.shift();
   }
   const first=distinct[0];if(!first)return;
-  displayAlert(first);playSound();notifySystem(first);
-  if(state.autoFollow){state.selectedId=first.id;state.heroId=first.id;if(C.hasCoords(first))goTo(first.longitude,first.latitude,20);}
+  displayAlert(first);playSound();notifySystem(first);window.GQSimulator?.onRealAlert(first);
+  if(state.autoFollow&&!window.GQSimulator?.isActive()){state.selectedId=first.id;state.heroId=first.id;if(C.hasCoords(first))goTo(first.longitude,first.latitude,20);}
 }
 function receive(data,via='http'){if(!C.validSnapshot(data))return;
   if(state.snapshot?.generatedAt&&data.generatedAt){const old=Date.parse(state.snapshot.generatedAt),newer=Date.parse(data.generatedAt);if(Number.isFinite(old)&&Number.isFinite(newer)&&newer<old-2000)return;}
@@ -151,7 +153,7 @@ function liveCounters(){const dt=new Date();$('clock').textContent=dt.toLocaleTi
 function bind(){document.querySelectorAll('.source-filter').forEach(b=>b.onclick=()=>sourceFilter(b.dataset.source));$('eventList').onclick=e=>{const b=e.target.closest('[data-id]');if(b)choose(b.dataset.id,true)};
   $('heroDetails').onclick=()=>{const e=state.snapshot?.events.find(e=>e.id===state.heroId);if(e)choose(e.id,false)};
   $('detailClose').onclick=()=>{state.detailsVisible=false;$('eventDetail').hidden=true};
-  $('alertDismiss').onclick=()=>$('newAlert').hidden=true;
+  $('alertDismiss').onclick=()=>{$('newAlert').hidden=true;document.getElementById('application').classList.remove('real-alert-open');};
   $('alertOpenDetail').onclick=()=>{if(state.alertId)choose(state.alertId,true)};
   $('refreshNow').onclick=fetchLatest;
   $('audioToggle').onclick=toggleAudio;$('audioSetting').onclick=toggleAudio;
@@ -161,7 +163,7 @@ function bind(){document.querySelectorAll('.source-filter').forEach(b=>b.onclick
   $('intensityModeSelect').onchange=()=>{state.intensityMode=$('intensityModeSelect').value;updateModeUI();persist()};
   $('navSettings').onclick=()=>$('settingsDialog').showModal();$('navHelp').onclick=()=>$('helpDialog').showModal();
   $('navFullscreen').onclick=()=>{if(document.fullscreenElement)document.exitFullscreen?.();else document.documentElement.requestFullscreen?.()};
-  $('navQuakes').onclick=()=>{state.detailsVisible=false;$('eventDetail').hidden=true;$('newAlert').hidden=true;fitEastAsia()};
+  $('navQuakes').onclick=()=>{if(window.GQSimulator?.isActive())window.GQSimulator.stop();state.detailsVisible=false;$('eventDetail').hidden=true;$('newAlert').hidden=true;fitEastAsia()};
   $('minMag').onchange=()=>{state.minMag=$('minMag').value;persist()};$('focusRegion').onchange=()=>{state.focus=$('focusRegion').value;persist();sourceFilter(state.source)};
   $('notifyPermission').onclick=async()=>{if(typeof Notification==='undefined'||!window.isSecureContext){$('notifyPermission').textContent='브라우저 미지원';return;}try{const p=await Notification.requestPermission();state.notificationEnabled=p==='granted';$('notifyPermission').textContent=p==='granted'?'알림 허용됨':'알림 권한: '+p}catch{$('notifyPermission').textContent='권한 요청 실패'}};
   document.addEventListener('visibilitychange',()=>{if(!document.hidden)fetchLatest()});
@@ -170,5 +172,5 @@ function init(){restore();restoreNotices();$('minMag').value=state.minMag;$('foc
   bind();bindMap();liveCounters();setInterval(liveCounters,1000);setInterval(fetchLatest,45000);
   setInterval(()=>{if(state.ws?.readyState===WebSocket.OPEN)try{state.ws.send(JSON.stringify({type:'ping',clientSent:Date.now()}))}catch{}},20000);
   connect();fetchLatest();}
-init();window.GQMapLive={state,map,receive,select:choose,refresh:fetchLatest};
+init();window.GQMapLive={state,map,receive,select:choose,refresh:fetchLatest,resync:syncRealMap};
 })();

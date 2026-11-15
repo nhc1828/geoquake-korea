@@ -5,13 +5,15 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#091521">
   <meta name="description" content="GEOQUAKE KOREA — 실제 KMA·JMA·USGS 지진 발표정보를 실시간으로 받아 지도와 알림으로 보여주는 웹 기반 모니터링 서비스.">
-  <title>GEOQUAKE KOREA | 실제 세계지도 · 지진 발생 모니터</title>
-  <link rel="stylesheet" href="./assets/map-first.css?v=4.1.0">
+  <title>GEOQUAKE KOREA | 실시간 지진·통합 실험실</title>
+  <link rel="stylesheet" href="./assets/map-first.css?v=4.2.0">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@6.16.0/dist/maplibre-gl.css">
-  <script defer src="./assets/map-first-core.js?v=4.1.0"></script>
-  <script defer src="./assets/intensity-model.js?v=4.1.0"></script>
-  <script defer src="./assets/map-first.js?v=4.1.0"></script>
-  <script type="module" src="./assets/real-map.js?v=4.1.0"></script>
+  <script defer src="./assets/map-first-core.js?v=4.2.0"></script>
+  <script defer src="./assets/intensity-model.js?v=4.2.0"></script>
+  <script defer src="./assets/sim-core.js?v=4.2.0"></script>
+  <script defer src="./assets/map-first.js?v=4.2.0"></script>
+  <script defer src="./assets/sim-ui.js?v=4.2.0"></script>
+  <script type="module" src="./assets/real-map.js?v=4.2.0"></script>
 </head>
 <body>
 <div class="application" id="application">
@@ -19,8 +21,9 @@
     <header class="side-top">
       <span class="brand-symbol" aria-hidden="true"><svg viewBox="0 0 40 40"><path d="M2 21h7l5-13 8 25 6-17 4 5h6" fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/></svg></span>
       <div class="brand-type"><strong>GEOQUAKE <em>KOREA</em></strong><span>REAL-TIME EARTHQUAKE MONITOR</span></div>
-      <span class="version">4.1</span>
+      <span class="version">4.2</span>
     </header>
+    <div id="liveSidebar" class="live-sidebar">
     <div class="sidebar-title"><span><span class="live-dot"></span> 최근 실제 지진 발표</span><span class="tiny-tag">KMA · JMA · USGS</span></div>
     <article class="hero-event" id="heroEvent" aria-live="polite">
       <div class="hero-top"><span id="heroType">수신 준비 중</span><span id="heroSource" class="source-pill">—</span></div>
@@ -44,13 +47,48 @@
       <div id="sourceStates"><div class="agency-row"><span>KMA</span><span>확인 중</span></div><div class="agency-row"><span>JMA</span><span>확인 중</span></div><div class="agency-row"><span>USGS</span><span>확인 중</span></div></div>
       <p class="source-foot">지진 발생 <b>후</b>의 발표정보를 표시합니다.<br>공식 긴급지진속보·쓰나미 경보 직접 수신은 아직 지원하지 않습니다.</p>
     </section>
+    </div><!-- liveSidebar -->
+    <section id="simSidebar" class="sim-sidebar" hidden aria-label="통합 지진 실험실 설정">
+      <div class="sim-heading"><span>SIMULATION CONTROL · v0.8 MODEL</span><h2>지진 발생 실험</h2><p>실제 세계지도에서 파면·예상진도·가상 관측망을 재현합니다.</p></div>
+      <div class="sim-scroll">
+        <form id="simForm">
+          <label for="simPreset">진앙 위치</label>
+          <select id="simPreset"><option value="kyushu">일본 큐슈 북부</option><option value="korea">한국 동남부</option><option value="shikoku">시코쿠 남쪽 해역</option><option value="tokyo">도쿄 동쪽 해역</option><option value="custom">직접 지정</option></select>
+          <div class="sim-double"><label>위도 °<input id="simLat" type="number" min="-80" max="80" step="0.0001" value="33.6500" required></label><label>경도 °<input id="simLon" type="number" min="-180" max="180" step="0.0001" value="130.2500" required></label></div>
+          <button type="button" id="simMapPick" class="sim-outline-btn">⊕ 지도에서 진앙 지정</button>
+          <div class="sim-mag-head"><label for="simMag">규모 M</label><output id="simMagValue">6.4</output></div>
+          <input id="simMag" type="range" min="0" max="9.5" step="0.1" value="6.4">
+          <label for="simDepth">진원 깊이 (km)</label><input id="simDepth" type="number" min="0" max="700" step="1" value="20" required>
+          <fieldset class="sim-network"><legend>가상 관측망 <small id="simSensorCount">64곳</small></legend><label><input type="checkbox" id="simKR" checked> 한국 17곳</label><label><input type="checkbox" id="simJP" checked> 일본 47곳</label></fieldset>
+          <label class="sim-check"><input type="checkbox" id="simFill" checked> 예상진도 색칠 · 숫자 표시</label>
+          <label class="sim-check"><input type="checkbox" id="simWaves" checked> P·S파 전파 표시</label>
+          <label class="sim-check"><input type="checkbox" id="simSensors" checked> 가상 관측점 표시</label>
+          <label class="sim-check"><input type="checkbox" id="simSound" checked> 모의 긴급 경고음 재생</label>
+          <label class="sim-check"><input type="checkbox" id="simVoice" checked> 모의실험 음성 고지 (지원 브라우저)</label>
+          <button id="simLaunch" type="submit" class="sim-launch">▶ 모의 지진 발생</button><button type="button" id="simAudioTest" class="sim-outline-btn">♪ 훈련용 경고음 테스트</button>
+          <p class="sim-form-error" id="simError" role="status"></p>
+        </form>
+        <details class="sim-extra" id="simExtra"><summary>관심 지점 추가 (최대 5곳)</summary>
+          <div class="sim-double"><label>지점 이름<input id="simPointName" maxlength="24" value="관심 지점"></label><label>진도 체계<select id="simPointCountry"><option value="KR">MMI</option><option value="JP">JMA</option></select></label></div>
+          <div class="sim-double"><label>위도 °<input id="simPointLat" type="number" min="-80" max="80" step="0.0001"></label><label>경도 °<input id="simPointLon" type="number" min="-180" max="180" step="0.0001"></label></div>
+          <button type="button" class="sim-outline-btn" id="simPickPoint">지도에서 관심 지점 지정</button>
+          <button type="button" class="sim-outline-btn" id="simAddPoint">+ 관심 지점 추가</button>
+          <div id="simPointList" class="sim-custom-list"></div>
+        </details>
+        <div class="sim-station-info" id="simSelectedInfo">관측점을 클릭하면 예상진도와 P·S파 도달시간을 확인할 수 있습니다.</div>
+        <div class="sim-tabs"><button type="button" id="simTabFeed" class="active" aria-pressed="true">관측 소식 <span id="simFeedCount">0건</span></button><button type="button" id="simTabRegions" aria-pressed="false">지역별 진도</button></div>
+        <div id="simFeed" class="sim-feed" aria-live="off"><p>실험을 시작하면 첫 P파 감지 이후 관측 소식이 누적됩니다.</p></div>
+        <div id="simRegionPanel" class="sim-region-panel" hidden><select id="simCountrySelect" aria-label="지역별 진도 표시 국가"><option value="KR">한국 · MMI 모형</option><option value="JP">일본 · JMA 모형</option></select><div id="simRegionList" class="sim-region-list"></div><p>지역대표점에 계산한 교육용 값입니다. 행정구역 전체 최대진도가 아닙니다.</p></div>
+      </div>
+      <div class="sim-footer"><a href="./lab/" target="_blank" rel="noopener noreferrer">원본 v0.8 전체 기능 ↗</a><span>원본 HTML 보존</span></div>
+    </section>
   </aside>
 
   <nav class="iconrail" aria-label="화면 및 설정">
     <button type="button" id="navQuakes" title="지진정보" class="active" aria-label="지진정보" aria-current="page"><svg viewBox="0 0 24 24"><path d="M3 12h4l3-7 4 14 3-7h4"/></svg></button>
     <button type="button" id="navObserved" title="실측·추정진도 레이어 전환" aria-label="실측·추정진도 레이어 전환" aria-pressed="true"><svg viewBox="0 0 24 24"><path d="M3 18 9 8l4 6 4-9 4 13z"/></svg></button>
     <button type="button" id="navSettings" title="알림 설정" aria-label="알림 설정"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3m0 14v3M2 12h3m14 0h3M4.9 4.9 7 7m10 10 2.1 2.1M19.1 4.9 17 7M7 17l-2.1 2.1"/></svg></button>
-    <a href="./lab/" title="교육용 실험실 (별도 페이지)" aria-label="교육용 실험실" class="rail-lab"><svg viewBox="0 0 24 24"><path d="M9 3h6M10 3v7l-6 9c-.5 1 .5 2 1.5 2h13c1 0 2-1 1.5-2l-6-9V3M8 15h8"/></svg></a>
+    <button type="button" id="navExperiment" title="통합 실험 시작" aria-label="실험 화면 열기" aria-pressed="false" class="rail-lab"><svg viewBox="0 0 24 24"><path d="M9 3h6M10 3v7l-6 9c-.5 1 .5 2 1.5 2h13c1 0 2-1 1.5-2l-6-9V3M8 15h8"/></svg><span class="rail-caption">실험</span></button>
     <div class="rail-spacer"></div>
     <button type="button" id="navFullscreen" title="전체화면" aria-label="전체화면"><svg viewBox="0 0 24 24"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m8 0h5v-5"/></svg></button>
     <button type="button" id="navHelp" title="데이터 안내" aria-label="데이터 안내"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-10v1"/></svg></button>
@@ -61,6 +99,19 @@
       <div id="realMap" class="real-map" role="application" aria-label="OpenStreetMap 기반 실제 전 세계 지진 지도. 마우스로 이동 및 확대·축소할 수 있습니다."></div>
       <div id="realMapStatus" class="real-map-status" data-level="loading">실제 세계지도를 연결하고 있습니다…</div>
     </div>
+    <div class="sim-banner" id="simBanner" hidden role="status"><strong>◈ SIMULATION · 모의실험</strong><span>이 지진·관측점·경보는 전부 교육용입니다. 실제 재난경보가 아닙니다.</span><button id="simExit" type="button">실험 종료 · LIVE 복귀</button></div>
+    <div class="sim-pick-note" id="simPickNote" hidden>지도에서 지진 위치를 클릭하세요 · Esc로 취소</div>
+    <section class="sim-bulletin" id="simBulletin" role="status" aria-live="polite" hidden>
+      <div class="sim-bulletin-head"><span class="sim-warning-pulse">!</span><div><strong>모의 긴급지진속보</strong><small>SIMULATED EARTHQUAKE NOTICE · 模擬緊急地震速報</small></div><button id="simBulletinClose" type="button" aria-label="모의 속보 접기">−</button></div>
+      <div class="sim-bulletin-body" id="simBulletinBody"><div class="sim-bulletin-main"><div class="sim-bulletin-mag"><small>설정 규모</small><strong id="simBulletinMag">—</strong></div><div class="sim-bulletin-place"><strong id="simBulletinPlace">—</strong><span id="simBulletinCoords">—</span><span id="simBulletinIssued">—</span></div></div>
+        <div class="sim-bulletin-maxima"><div><span>한국 최대 모형진도 · MMI</span><strong id="simMaxKR">—</strong><small id="simMaxKRPlace">—</small></div><div><span>일본 최대 모형진도 · JMA</span><strong id="simMaxJP">—</strong><small id="simMaxJPPlace">—</small></div></div>
+        <div class="sim-bulletin-rows"><span>최초 가상 P파 감지 <b id="simFirstStation">—</b></span><span>선택 지점 S파 <b id="simSCountdown">—</b></span></div>
+        <div class="sim-bulletin-language"><span lang="ko">훈련 · 첫 P파 감지</span><span lang="en">TRAINING · First P-wave</span><span lang="ja">訓練 · P波初期検知</span></div>
+        <p>모형에서 P파 최초 감지 시 표시되는 훈련 메시지입니다. 실제 관측 또는 공식 긴급지진속보가 아닙니다.</p></div>
+      <div class="sim-bulletin-foot">훈련 · TRAINING · 訓練　|　실제 경보 아님</div>
+    </section>
+    <div class="sim-transport" id="simTransport" hidden><button type="button" id="simReset">↺</button><button type="button" id="simPlay">Ⅱ 일시정지</button><button type="button" id="simNext">다음 관측 ›</button><button type="button" id="simFirst">첫 감지</button><div class="sim-time"><strong id="simClock">T+0.0s</strong><span id="simPhase">첫 P파 감지 전</span></div><input type="range" id="simTimeline" min="0" max="300" step="0.01" value="0" aria-label="모의 시점 이동"><select id="simSpeed" aria-label="재생 배속"><option value="1">1×</option><option value="2">2×</option><option value="5" selected>5×</option><option value="10">10×</option><option value="30">30×</option></select><button type="button" id="simExport" title="모의기록 JSON 저장">↓ 기록</button></div>
+    <div class="sim-realtime-notice" id="simRealtimeNotice" hidden role="status"><strong>실제 지진 발표가 새로 수신됐습니다</strong><button type="button" id="simGoLive">실험 종료 후 확인</button></div>
     <div class="map-top-left"><div class="clockbox"><time id="clock">--:--:--</time><span>KST · <span id="today">—</span></span></div><div id="mapUpdate" class="update-pill">수신 대기</div></div>
     <div class="map-top-right"><div class="connection-status" id="connectionStatus" data-status="connecting"><span class="conn-dot"></span><span id="connectionText">서버 연결 중</span></div><button id="audioToggle" type="button" class="top-control" aria-pressed="false" title="지진 발표 알림음"><span id="audioIcon">♪</span> <span id="audioLabel">알림음 켜기</span></button><button id="mapFollow" type="button" class="top-control selected" aria-pressed="true">◎ 최신 사건 추적</button></div>
     <div class="map-key" id="mapKey"><div class="map-key-head"><b id="mapKeyTitle">관측 우선 + 추정 보완</b><span id="mapKeySubtitle">실측 JMA / 추정 JMA·MMI</span></div><div class="intensity-legend"><span style="--x:#41637a">1</span><span style="--x:#4ba7c0">2</span><span style="--x:#63c69c">3</span><span style="--x:#d6c968">4</span><span style="--x:#ecb654">5약</span><span style="--x:#e98652">5강</span><span style="--x:#e36b65">6약</span><span style="--x:#b75bd5">6강</span><span style="--x:#ea87d6">7</span></div><div class="intensity-legend mmi-legend" aria-label="교육용 MMI 모형 등급"><span style="--x:#42647f">MMI 2</span><span style="--x:#48a4b0">4</span><span style="--x:#a6c468">6</span><span style="--x:#e9a453">8</span><span style="--x:#e56d62">10</span></div>
@@ -105,6 +156,6 @@
     <p class="dialog-safety">본 서비스는 공공 긴급재난경보의 대체 수단이 아닙니다. 지진 발생 전 예측, 지진파 실측 스트림, 쓰나미 안전 판정은 제공하지 않습니다.</p>
   </form>
 </dialog>
-<dialog id="helpDialog" class="settings-dialog"><form method="dialog"><div class="dialog-head"><h2>GEOQUAKE KOREA 데이터 안내</h2><button class="close-dialog" value="cancel" aria-label="닫기">×</button></div><p>이 화면은 실제 기관에서 발표한 지진 발생정보를 수신한 뒤 표시합니다. 화면 안에서 발생하는 새로운 발표 알림은 정부의 공식 긴급지진속보와 동일하지 않습니다.</p><p>한국 기상청(KMA)은 서버의 지진통보 API 조회, 일본 기상청(JMA)은 P2PQuake의 JMA 551 발표 중계, 미국 USGS는 공개 GeoJSON 피드를 사용합니다. 각각 제공 주기와 지연은 다릅니다.</p><p>일본에서 관측점별 진도가 제공되면 <b>해당 도도부현의 관측점 최고진도</b>를 표시합니다. 현 전체가 동일한 진도로 흔들렸다는 뜻이 아닙니다. 지역별 관측진도가 없는 경우에는 GEOQUAKE 실험실 v0.8의 거리감쇠 공식을 사용한 <b>교육용 예상진도</b>로 보완합니다. 한국·중국 및 기타 지역의 모형값은 MMI 기반이며, 일본의 모형값은 JMA 형식의 별도 시연 척도입니다. 두 척도를 직접 환산하거나 공식 경보값으로 해석해서는 안 됩니다.</p><p>기본 지도: OpenFreeMap(OpenStreetMap 데이터), 대체 지도: OpenStreetMap 표준 타일 · 행정경계: geoBoundaries gbOpen (CC BY 4.0). 공식 발표기관: <a href="https://apihub.kma.go.kr/" target="_blank" rel="noopener noreferrer">KMA</a> · <a href="https://www.p2pquake.net/develop/" target="_blank" rel="noopener noreferrer">P2PQuake</a> · <a href="https://earthquake.usgs.gov/" target="_blank" rel="noopener noreferrer">USGS</a>.</p><p>원본 실험실은 <a href="./lab/" target="_blank" rel="noopener noreferrer">별도 교육용 시뮬레이터</a>에서 계속 사용할 수 있습니다.</p></form></dialog>
+<dialog id="helpDialog" class="settings-dialog"><form method="dialog"><div class="dialog-head"><h2>GEOQUAKE KOREA 데이터 안내</h2><button class="close-dialog" value="cancel" aria-label="닫기">×</button></div><p>이 화면은 실제 기관에서 발표한 지진 발생정보를 수신한 뒤 표시합니다. 화면 안에서 발생하는 새로운 발표 알림은 정부의 공식 긴급지진속보와 동일하지 않습니다.</p><p>한국 기상청(KMA)은 서버의 지진통보 API 조회, 일본 기상청(JMA)은 P2PQuake의 JMA 551 발표 중계, 미국 USGS는 공개 GeoJSON 피드를 사용합니다. 각각 제공 주기와 지연은 다릅니다.</p><p>일본에서 관측점별 진도가 제공되면 <b>해당 도도부현의 관측점 최고진도</b>를 표시합니다. 현 전체가 동일한 진도로 흔들렸다는 뜻이 아닙니다. 지역별 관측진도가 없는 경우에는 GEOQUAKE 실험실 v0.8의 거리감쇠 공식을 사용한 <b>교육용 예상진도</b>로 보완합니다. 한국·중국 및 기타 지역의 모형값은 MMI 기반이며, 일본의 모형값은 JMA 형식의 별도 시연 척도입니다. 두 척도를 직접 환산하거나 공식 경보값으로 해석해서는 안 됩니다.</p><p>기본 지도: OpenFreeMap(OpenStreetMap 데이터), 대체 지도: OpenStreetMap 표준 타일 · 행정경계: geoBoundaries gbOpen (CC BY 4.0). 공식 발표기관: <a href="https://apihub.kma.go.kr/" target="_blank" rel="noopener noreferrer">KMA</a> · <a href="https://www.p2pquake.net/develop/" target="_blank" rel="noopener noreferrer">P2PQuake</a> · <a href="https://earthquake.usgs.gov/" target="_blank" rel="noopener noreferrer">USGS</a>.</p><p>실험 아이콘을 누르면 실제 지도에서 가상 관측망·P/S파 재현·모의 속보를 실행할 수 있습니다. <a href="./lab/" target="_blank" rel="noopener noreferrer">원본 v0.8 단독 실험실</a>도 별도로 보존합니다. 실험 시 발생하는 소리와 메시지는 모두 훈련용으로 표시하며 실제 발표 데이터로 전송하거나 알림 이력에 저장하지 않습니다.</p></form></dialog>
 </body>
 </html>

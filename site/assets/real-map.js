@@ -10,7 +10,8 @@ const MODEL_NOTE=document.getElementById('mapKeyNote');
 const COUNTRIES=['KOR','JPN','CHN','TWN','PRK'];
 const ISO_NAME={KOR:'대한민국',JPN:'일본',CHN:'중국',TWN:'대만',PRK:'북한'};
 let provider='',map=null,lib=null,ready=false,polygons=[],regionCenters=[],latest=null,lastGeoKey='',lastEventKey='',reloadToken=0;
-let leafletZones=null,leafletEvents=null,leafletContours=null,leafletCenterPoints=null;
+let leafletZones=null,leafletEvents=null,leafletContours=null,leafletCenterPoints=null,leafletSimulation=null;
+let simFrame=null;
 const SUPPORTED_MODES=new Set(['hybrid','observed','model','off']);
 const once=(key,fn)=>{if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',fn,{once:true});else fn();};
 function tell(message,level='loading'){
@@ -128,18 +129,22 @@ function setupMapLibreLayers(){
   if(!map||provider!=='maplibre')return;
   const style=map.getStyle();
   const before=style.layers?.find(l=>l.type==='symbol')?.id;
-  for(const [id,type] of [['gq-contours','geojson'],['gq-zones','geojson'],['gq-centers','geojson'],['gq-events','geojson']])if(!map.getSource(id))map.addSource(id,{type,data:EMPTY()});
+  for(const [id,type] of [['gq-contours','geojson'],['gq-zones','geojson'],['gq-centers','geojson'],['gq-events','geojson'],['gq-sim-waves','geojson'],['gq-sim-sensors','geojson']])if(!map.getSource(id))map.addSource(id,{type,data:EMPTY()});
   map.addLayer({id:'gq-contours-fill',type:'fill',source:'gq-contours',paint:{'fill-color':['get','color'],'fill-opacity':0.12}},before);
   map.addLayer({id:'gq-zone-fill',type:'fill',source:'gq-zones',paint:{'fill-color':['get','color'],'fill-opacity':['case',['==',['get','kind'],'observed'],0.72,0.40]}},before);
   map.addLayer({id:'gq-zone-outline',type:'line',source:'gq-zones',paint:{'line-color':['case',['==',['get','kind'],'observed'],'#f2f8fb','#8cb5c7'],'line-width':['case',['==',['get','kind'],'observed'],1.3,0.65],'line-opacity':0.86}},before);
   map.addLayer({id:'gq-zone-label',type:'symbol',source:'gq-zones',layout:{'text-field':['get','intensityLabel'],'text-size':13,'text-font':['Noto Sans Regular'],'text-allow-overlap':false,'text-optional':true},paint:{'text-color':'#10202b','text-halo-color':'#eef6f3','text-halo-width':1.5}});
   map.addLayer({id:'gq-center-badges',type:'circle',source:'gq-centers',paint:{'circle-color':['get','color'],'circle-radius':9,'circle-stroke-color':'#112b42','circle-stroke-width':1.5}});
+  map.addLayer({id:'gq-sim-wave-lines',type:'line',source:'gq-sim-waves',paint:{'line-color':['get','color'],'line-width':['case',['==',['get','phase'],'P'],2.5,3.4],'line-opacity':0.95,'line-dasharray':[3,2]}});
+  map.addLayer({id:'gq-sim-station-circles',type:'circle',source:'gq-sim-sensors',paint:{'circle-color':['get','color'],'circle-radius':['case',['==',['get','selected'],1],7,4.2],'circle-stroke-color':'#112538','circle-stroke-width':['case',['==',['get','selected'],1],2.4,1.2]}});
+  map.addLayer({id:'gq-sim-station-label',type:'symbol',source:'gq-sim-sensors',layout:{'text-field':['case',['==',['get','selected'],1],['get','name'],''],'text-size':11,'text-allow-overlap':false},paint:{'text-color':'#fff5e4','text-halo-color':'#172638','text-halo-width':2}});
   map.addLayer({id:'gq-event-rings',type:'circle',source:'gq-events',filter:['==',['get','selected'],1],paint:{'circle-color':'rgba(255,220,140,0.03)','circle-radius':23,'circle-stroke-color':'#ffda94','circle-stroke-width':1.5}});
   map.addLayer({id:'gq-event-circles',type:'circle',source:'gq-events',paint:{'circle-color':['get','color'],'circle-radius':['case',['==',['get','selected'],1],8,5],'circle-stroke-color':'#0c2132','circle-stroke-width':2}});
-  map.on('click','gq-event-circles',e=>{const id=e.features?.[0]?.properties?.id;if(id)emit('gq-map-select',{id});});
-  map.on('click','gq-zone-fill',maplibrePopup);
+  map.on('click','gq-event-circles',e=>{if(window.GQSimulator?.isPicking())return;const id=e.features?.[0]?.properties?.id;if(id&&!String(id).startsWith('SIM:'))emit('gq-map-select',{id});});
+  map.on('click','gq-sim-station-circles',e=>{const id=e.features?.[0]?.properties?.id;if(id)emit('gq-sim-select-point',{id});});
+  map.on('click','gq-zone-fill',e=>{if(!window.GQSimulator?.isPicking())maplibrePopup(e);});
   map.on('click','gq-center-badges',maplibrePopup);
-  for(const layer of ['gq-event-circles','gq-zone-fill','gq-center-badges']){
+  for(const layer of ['gq-event-circles','gq-zone-fill','gq-center-badges','gq-sim-station-circles']){
     map.on('mouseenter',layer,()=>map.getCanvas().style.cursor='pointer');
     map.on('mouseleave',layer,()=>map.getCanvas().style.cursor='');
   }
@@ -147,6 +152,7 @@ function setupMapLibreLayers(){
 function redrawMapLibre(data){
   const change=(id,features)=>{const src=map.getSource(id);if(src)src.setData(featureCollection(features));};
   change('gq-contours',data.contours);change('gq-zones',data.zones);change('gq-centers',data.points);change('gq-events',data.events.features);
+  redrawSimulationFrame();
 }
 function redrawLeaflet(data){
   for(const lay of [leafletZones,leafletEvents,leafletContours,leafletCenterPoints])if(lay)lay.clearLayers();
@@ -164,6 +170,22 @@ function redrawLeaflet(data){
     m.on('click',()=>emit('gq-map-select',{id:p.id}));m.bindTooltip(p.place+' · '+p.source);m.addTo(leafletEvents);
   }
 }
+function redrawSimulationFrame(){
+  if(!ready)return;
+  const waves=simFrame?.waves||EMPTY(),stations=simFrame?.stations||EMPTY();
+  if(provider==='maplibre'){
+    const a=map.getSource('gq-sim-waves'),b=map.getSource('gq-sim-sensors');
+    if(a)a.setData(waves);if(b)b.setData(stations);
+  }else if(provider==='leaflet'&&leafletSimulation){
+    leafletSimulation.clearLayers();
+    for(const f of waves.features||[])lib.geoJSON(f,{style:{color:f.properties.color,weight:f.properties.phase==='S'?3:2,dashArray:'7 7',opacity:.93,interactive:false}}).addTo(leafletSimulation);
+    for(const f of stations.features||[]){const p=f.properties,ll=[f.geometry.coordinates[1],f.geometry.coordinates[0]];
+      const b=lib.circleMarker(ll,{radius:p.selected?7:4.2,color:'#152536',weight:p.selected?2.5:1.2,fillColor:p.color,fillOpacity:.98});
+      b.on('click',()=>emit('gq-sim-select-point',{id:p.id}));b.bindTooltip(p.name+' · '+p.phase);b.addTo(leafletSimulation);
+    }
+  }
+}
+function setSimulationFrame(frame){simFrame=frame;redrawSimulationFrame();}
 let latestDrawToken=0;
 function update(){
   if(!ready||!latest)return;
@@ -197,7 +219,8 @@ async function setupMapLibre(){
   });
   setupMapLibreLayers();
   map.on('mousemove',e=>emit('gq-map-coord',{lat:e.lngLat.lat,lon:e.lngLat.lng}));
-  ready=true;ROOT.classList.add('map-gl');tell('', 'ready');update();fitEastAsia();emit('gq-realmap-ready',{provider});
+  map.on('click',e=>emit('gq-map-pick',{lat:e.lngLat.lat,lon:e.lngLat.lng}));
+  ready=true;ROOT.classList.add('map-gl');tell('', 'ready');update();redrawSimulationFrame();fitEastAsia();emit('gq-realmap-ready',{provider});
 }
 async function setupLeaflet(){
   provider='leaflet';ROOT.replaceChildren();
@@ -209,9 +232,10 @@ async function setupLeaflet(){
   lib.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{
     attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>',minZoom:1,maxZoom:19,detectRetina:false
   }).addTo(map);
-  leafletZones=lib.layerGroup().addTo(map);leafletContours=lib.layerGroup().addTo(map);leafletCenterPoints=lib.layerGroup().addTo(map);leafletEvents=lib.layerGroup().addTo(map);
+  leafletZones=lib.layerGroup().addTo(map);leafletContours=lib.layerGroup().addTo(map);leafletCenterPoints=lib.layerGroup().addTo(map);leafletEvents=lib.layerGroup().addTo(map);leafletSimulation=lib.layerGroup().addTo(map);
   map.on('mousemove',e=>emit('gq-map-coord',{lat:e.latlng.lat,lon:e.latlng.lng}));
-  ready=true;ROOT.classList.add('map-leaflet');tell('', 'ready');update();fitEastAsia();emit('gq-realmap-ready',{provider});
+  map.on('click',e=>emit('gq-map-pick',{lat:e.latlng.lat,lon:e.latlng.lng}));
+  ready=true;ROOT.classList.add('map-leaflet');tell('', 'ready');update();redrawSimulationFrame();fitEastAsia();emit('gq-realmap-ready',{provider});
 }
 async function boot(){
   tell('실제 세계지도 연결 중…');
@@ -220,6 +244,6 @@ async function boot(){
   tell('벡터 지도 연결 지연 · OpenStreetMap 대체 지도 연결 중');
   try{await setupLeaflet();return}catch(e){tell('실제 지도 연결 실패 · 네트워크 상태를 확인하세요','error');console.warn('OSM fallback failed:',e?.message||e)}
 }
-const publicApi={setSnapshot,focus,zoom,fitEastAsia,fitWorld,info:()=>({ready,provider,boundaries:polygons.length})};
+const publicApi={setSnapshot,setSimulationFrame,focus,zoom,fitEastAsia,fitWorld,info:()=>({ready,provider,boundaries:polygons.length})};
 window.GQRealMap=publicApi;
 once('dom',boot);
