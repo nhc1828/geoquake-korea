@@ -164,3 +164,5 @@
 .hazard-panel p button{margin-left:6px;padding:2px 5px;border:1px solid #8ab4c8;border-radius:4px;background:#203849;color:#e4f4fa;font-size:10px;cursor:pointer}
 .sim-hazard-notice{top:125px;white-space:normal;line-height:1.55;border-color:#ffbf69;background:#4b2817;color:#fff2d8;max-height:30vh;overflow:auto}
 .sim-extra p{font-size:11px;line-height:1.5;color:#c7d5dc}
+.sim-hazard-result{white-space:pre-line;line-height:1.55;background:#253443;border:1px solid #52677a;border-radius:6px;padding:8px;margin:8px 0;color:#f5e8cf;font-size:11px;overflow-wrap:anywhere}
+.sim-hazard-help{font-size:11px;line-height:1.5;color:#c7d5dc}

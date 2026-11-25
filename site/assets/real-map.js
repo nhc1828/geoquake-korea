@@ -144,6 +144,7 @@ function setupMapLibreLayers(){
   map.addLayer({id:'gq-event-rings',type:'circle',source:'gq-events',filter:['==',['get','selected'],1],paint:{'circle-color':'rgba(255,220,140,0.03)','circle-radius':23,'circle-stroke-color':'#ffda94','circle-stroke-width':1.5}});
   map.addLayer({id:'gq-event-circles',type:'circle',source:'gq-events',paint:{'circle-color':['get','color'],'circle-radius':['case',['==',['get','selected'],1],8,5],'circle-stroke-color':'#0c2132','circle-stroke-width':2}});
   map.addLayer({id:'gq-hazard-area',type:'fill',source:'gq-hazards',filter:['==',['geometry-type'],'Polygon'],paint:{'fill-color':['get','color'],'fill-opacity':0.18}});
+  map.addLayer({id:'gq-hazard-area-border',type:'line',source:'gq-hazards',filter:['==',['geometry-type'],'Polygon'],paint:{'line-color':['get','color'],'line-width':2,'line-opacity':0.95,'line-dasharray':[3,2]}});
   map.addLayer({id:'gq-hazard-lines',type:'line',source:'gq-hazards',filter:['==',['geometry-type'],'LineString'],paint:{'line-color':['get','color'],'line-width':5,'line-opacity':0.95}});
   map.addLayer({id:'gq-hazard-points',type:'circle',source:'gq-hazards',filter:['==',['geometry-type'],'Point'],paint:{'circle-radius':11,'circle-color':['get','color'],'circle-stroke-color':'#fff','circle-stroke-width':2}});
   map.addLayer({id:'gq-hazard-icon',type:'symbol',source:'gq-hazards',filter:['==',['geometry-type'],'Point'],layout:{'text-field':'▲','text-size':16,'text-allow-overlap':true},paint:{'text-color':'#38190d'}});

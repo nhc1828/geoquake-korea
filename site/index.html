@@ -6,17 +6,17 @@
   <meta name="theme-color" content="#091521">
   <meta name="description" content="GEOQUAKE KOREA — 실제 KMA·JMA·USGS 지진 발표정보를 실시간으로 받아 지도와 알림으로 보여주는 웹 기반 모니터링 서비스.">
   <title>GEOQUAKE KOREA | 실시간 지진·통합 실험실</title>
-  <link rel="stylesheet" href="./assets/map-first.css?v=5.1.0">
+  <link rel="stylesheet" href="./assets/map-first.css?v=5.2.0">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@6.16.0/dist/maplibre-gl.css">
   <script defer src="./assets/map-first-core.js?v=5.0.0"></script>
   <script defer src="./assets/intensity-model.js?v=5.0.0"></script>
   <script defer src="./assets/sim-core.js?v=4.2.0"></script>
   <script defer src="./assets/map-first.js?v=5.0.0"></script>
   <script defer src="./assets/broadcast-script.js?v=4.3.0"></script>
-  <script defer src="./assets/hazard-core.js?v=1"></script>
-  <script defer src="./assets/hazards.js?v=4"></script>
-  <script defer src="./assets/sim-ui.js?v=4.4.0"></script>
-  <script type="module" src="./assets/real-map.js?v=5.1.0"></script>
+  <script defer src="./assets/hazard-core.js?v=2"></script>
+  <script defer src="./assets/hazards.js?v=5"></script>
+  <script defer src="./assets/sim-ui.js?v=4.5.0"></script>
+  <script type="module" src="./assets/real-map.js?v=5.2.0"></script>
 </head>
 <body>
 <div class="application" id="application">
@@ -66,6 +66,9 @@
           <fieldset class="sim-network"><legend>가상 관측망 <small id="simSensorCount">64곳</small></legend><label><input type="checkbox" id="simKR" checked> 한국 17곳</label><label><input type="checkbox" id="simJP" checked> 일본 47곳</label></fieldset>
           <label class="sim-check"><input type="checkbox" id="simFill" checked> 예상진도 색칠 · 숫자 표시</label>
           <label class="sim-check"><input type="checkbox" id="simTsunami"> 지진해일 모의 경보 켜기</label>
+          <label>가상 기준 파고 (100km 지점, m) <input id="simTsunamiHeight" type="number" min="0" max="30" step="0.1" placeholder="비우면 규모별 가상값"></label>
+          <p class="sim-hazard-help">파고는 훈련용 임의값입니다. 해상 격자와 간단한 거리 감소로 지역별 색을 나눕니다.<br>🟨 주의보 0.2~1m · 🟥 경보 1m 초과~3m · 🟪 대지진해일 경보 3m 초과</p>
+          <div id="simTsunamiResult" class="sim-hazard-result" role="status">훈련 · 지진해일 경보 대기</div>
           <label class="sim-check"><input type="checkbox" id="simWaves" checked> P·S파 전파 표시</label>
           <label class="sim-check"><input type="checkbox" id="simSensors" checked> 가상 관측점 표시</label>
           <label class="sim-check"><input type="checkbox" id="simSound" checked> 모의 긴급 경고음 재생</label>
@@ -76,10 +79,11 @@
           <p class="sim-form-error" id="simError" role="status"></p>
         </form>
         <details class="sim-extra" open><summary>화산 분화 실험</summary>
-          <p>위 진앙 좌표를 화산 위치로 사용합니다. 지도에서 직접 지정할 수도 있습니다.</p>
+          <p>위 진앙 좌표를 화산 위치로 사용합니다. 지도에서 직접 지정할 수도 있습니다. 붉은 원은 근거리 피해, 노란 타원은 가상 화산재 구역입니다.</p>
           <label>화산폭발지수 VEI<select id="simVolcanoVei"><option>0</option><option>1</option><option>2</option><option selected>3</option><option>4</option><option>5</option><option>6</option><option>7</option><option>8</option></select></label>
+          <label>화산재가 향하는 가상 바람 방향 <select id="simVolcanoWind"><option value="N">북쪽</option><option value="NE">북동쪽</option><option value="E" selected>동쪽</option><option value="SE">남동쪽</option><option value="S">남쪽</option><option value="SW">남서쪽</option><option value="W">서쪽</option><option value="NW">북서쪽</option></select></label>
           <button type="button" id="simVolcanoLaunch" class="sim-outline-btn">▲ 모의 화산 분화 시작</button>
-          <p id="hazardTrainingResult" role="status">훈련용 임의 모형입니다. 실제 화산 경보·피해 예측이 아닙니다.</p>
+          <p id="hazardTrainingResult" class="sim-hazard-result" role="status">훈련용 임의 모형입니다. 실제 화산 경보·피해 예측이 아닙니다.</p>
         </details>
         <details class="sim-extra" id="simExtra"><summary>관심 지점 추가 (최대 5곳)</summary>
           <div class="sim-double"><label>지점 이름<input id="simPointName" maxlength="24" value="관심 지점"></label><label>진도 체계<select id="simPointCountry"><option value="KR">MMI</option><option value="JP">JMA</option></select></label></div>

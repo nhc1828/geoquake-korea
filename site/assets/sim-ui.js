@@ -161,6 +161,7 @@ function bind(){
  $('simPointList').onclick=e=>{const b=e.target.closest('[data-remove-point]');if(!b)return;state.custom=state.custom.filter(x=>x.id!==b.dataset.removePoint);renderCustom();invalidate()};
  $('simForm').onsubmit=e=>{e.preventDefault();window.GQHazards?.clearVolcano();if(setupRun())window.GQHazards?.simulationChanged()};
  $('simTsunami').onchange=()=>window.GQHazards?.simulationChanged();
+ $('simTsunamiHeight').onchange=()=>window.GQHazards?.simulationChanged();
  $('simReset').onclick=()=>invalidate();$('simPlay').onclick=setPlaying;
  $('simNext').onclick=()=>{if(!state.run)return;const next=S.nextTime(state.run,state.time);state.playing=false;fireBulletinByButton(next);render(next,true)};
  $('simFirst').onclick=()=>{if(!state.run)return;state.playing=false;fireBulletinByButton(state.run.firstP);render(state.run.firstP,true)};

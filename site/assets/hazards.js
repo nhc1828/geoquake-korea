@@ -27,21 +27,35 @@
  function simulationChanged(){
   const sim=window.GQSimulator,active=sim?.isActive();
   if(!active){scenario=null;lastSignature='live';el('simHazardNotice').hidden=true;window.GQRealMap?.setHazardFrame({type:'FeatureCollection',features:realFeatures()});return;}
-  const run=sim.state.run,shown=!!run&&sim.state.time>=run.firstP;
-  const sig=JSON.stringify([active,shown,run?.eventId,run?.origin,el('simTsunami').checked,scenario,!!coasts,!!land]);
+  const run=sim.state.run,shown=!!run&&sim.state.time>=run.firstP,heightInput=el('simTsunamiHeight').value.trim();
+  const sig=JSON.stringify([active,shown,run?.origin,el('simTsunami').checked,heightInput,scenario,!!coasts,!!land]);
   if(sig===lastSignature)return;lastSignature=sig;
   const features=[],messages=[];
-  if(run&&scenario&&shown){features.push(...scenario.features);messages.push(`훈련 · 모의 화산 특보: VEI ${scenario.vei}, 가상 화산성 지진 M ${scenario.quakeMagnitude.toFixed(1)} · 가상 영향 반경 ${scenario.radius} km`);}
-  if(run&&!scenario&&el('simTsunami').checked){
-   if(!coasts||!land)messages.push('훈련 · 해안 지도 수신 대기 또는 실패');
-   else{const result=C.tsunami(run.origin,land,coasts);
-    const msg={outside:'지원 범위 밖 · 한반도·일본 주변만 모의',land:'진앙이 육지로 분류되어 해일 모의를 실행하지 않음',below:'모의 조건 미달 · 해역 M7.0 이상, 깊이 70km 이하 필요',no_coast:'모의 조건 충족 · 표시 범위 안의 해안 구간 없음',warning:`모의 지진해일 경보 · 직선거리 ${result.radius}km 이내 연안: ${result.features.map(f=>f.properties.name).join(', ')}`,invalid:'좌표 또는 규모 확인 필요'}[result.status];
-    if(shown||result.status!=='warning')messages.push('훈련 · '+msg);
-    if(shown)features.push(...result.features);
-   }
+  let volcanoDetail='훈련용 임의 모형입니다. 실제 화산 경보·피해 예측이 아닙니다.';
+  let tsunamiDetail='훈련 · 지진해일 경보 대기';
+  if(run&&scenario&&shown){
+   features.push(...scenario.features);
+   const near=scenario.nearby.length?scenario.nearby.join(', '):'범위 안의 등록 대표지점 없음';
+   const ash=scenario.ash.length?scenario.ash.join(', '):'범위 안의 등록 대표지점 없음';
+   messages.push(`훈련 · 모의 화산 경보 | VEI ${scenario.vei} · 가상 화산성 지진 M ${scenario.quakeMagnitude.toFixed(1)} | 근거리 피해 경보 · 화산재 주의보`);
+   const windName={N:'북쪽',NE:'북동쪽',E:'동쪽',SE:'남동쪽',S:'남쪽',SW:'남서쪽',W:'서쪽',NW:'북서쪽'}[scenario.wind];
+   volcanoDetail=`[훈련] 모의 화산 경보 · VEI ${scenario.vei}\n근거리 피해 경보: 화구 ${scenario.radius}km 이내, 화산탄·화쇄류 피해 상황. 대표지점: ${near}\n화산재 주의보: 가상 바람 ${windName} 방향 ${scenario.length}km. 시야·교통 영향 상황. 대표지점: ${ash}\n실제 피해 예측이나 기상청 특보가 아닙니다.`;
   }
+  if(run&&!scenario&&el('simTsunami').checked){
+   if(!coasts||!land){messages.push('훈련 · 해안 지도 수신 대기 또는 실패');tsunamiDetail='훈련 · 해안 지도 수신 대기 또는 실패';}
+   else{const result=C.tsunami(run.origin,land,coasts,heightInput===''?null:Number(heightInput));
+    const msg={outside:'지원 범위 밖 · 한반도·일본 주변만 모의',land:'진앙이 육지로 분류되어 해일 모의를 실행하지 않음',below:'모의 조건 미달 · 해역 M6.5 이상, 깊이 100km 이하 필요',no_coast:'모의 기준 파고가 0.2m 이상인 도달 연안 없음',invalid_height:'가상 기준 파고는 0~30m 사이로 입력하세요',invalid:'좌표 또는 규모·지도 확인 필요'}[result.status];
+    if(result.status==='warning'&&shown){
+     features.push(...result.features);const p=result.features[0].properties,groups=[3,2,1].map(rank=>({rank,items:result.features.filter(f=>f.properties.rank===rank)})).filter(g=>g.items.length);
+     messages.push(`훈련 · 모의 ${p.level} 등 ${result.features.length}개 연안 구역 · 실제 경보 아님`);
+     tsunamiDetail='[훈련] 지역별 모의 지진해일 발표\n'+groups.map(g=>`${g.items[0].properties.level}: ${g.items.map(f=>`${f.properties.name} (${f.properties.height.toFixed(2)}m)`).join(', ')}`).join('\n')+'\n파고는 사용자 입력 또는 규모별 임의값을 감쇠한 가상값입니다. 실제 예측이 아닙니다.';
+    }else if(result.status==='warning'){tsunamiDetail='훈련 · 첫 가상 P파 감지 후 모의 지진해일 발표';}
+    else{tsunamiDetail='훈련 · '+msg;if(shown||result.status!=='no_coast')messages.push(tsunamiDetail);}
+   }
+  }else if(run&&scenario&&el('simTsunami').checked){tsunamiDetail='훈련 · 화산 폭발로 발생하는 해일은 이 모형에서 계산하지 않습니다.';}
+  else if(!el('simTsunami').checked){tsunamiDetail='훈련 · 지진해일 모의 경보 꺼짐';}
   const notice=el('simHazardNotice');notice.textContent=messages.join(' / ')+(messages.length?' · 실제 경보·피해 예측 아님':'');notice.hidden=!messages.length;
-  el('hazardTrainingResult').textContent=messages.join(' / ')||'훈련용 임의 모형입니다. 실제 화산 경보·피해 예측이 아닙니다.';
+  el('simTsunamiResult').textContent=tsunamiDetail;el('hazardTrainingResult').textContent=volcanoDetail;
   window.GQRealMap?.setHazardFrame({type:'FeatureCollection',features});
  }
  window.GQHazards={simulationChanged,clearVolcano(){scenario=null;lastSignature=''},isVolcano:()=>!!scenario};
@@ -94,17 +108,17 @@
  async function refresh(){try{const r=await fetch(API,{cache:'no-store',signal:AbortSignal.timeout(12000)});if(!r.ok)throw Error();render(await r.json())}catch{render(null);el('hazardContent').prepend(document.createTextNode('재해 정보 연결 실패 · 현재 상태 확인 불가'))}}
  function init(){
   el('simVolcanoLaunch').addEventListener('click',()=>{
-   const lat=Number(el('simLat').value),lon=Number(el('simLon').value),vei=Number(el('simVolcanoVei').value);
-   if(!el('simLat').value.trim()||!el('simLon').value.trim()||!(scenario=C.volcano(lat,lon,vei))){el('hazardTrainingResult').textContent='훈련 · 화산 위치와 VEI를 확인하세요.';return;}
+   const lat=Number(el('simLat').value),lon=Number(el('simLon').value),vei=Number(el('simVolcanoVei').value),wind=el('simVolcanoWind').value;
+   if(!el('simLat').value.trim()||!el('simLon').value.trim()||!(scenario=C.volcano(lat,lon,vei,wind,window.GQSimulator?.state.regions||[]))){el('hazardTrainingResult').textContent='훈련 · 화산 위치와 VEI를 확인하세요.';return;}
    el('simPreset').value='custom';el('simMag').value=scenario.quakeMagnitude.toFixed(1);el('simMagValue').textContent=scenario.quakeMagnitude.toFixed(1);el('simDepth').value=5;
    if(!window.GQSimulator?.start()){scenario=null;return;}lastSignature='';simulationChanged();
   });
   el('hazardNoticeClose').addEventListener('click',()=>{el('hazardNotice').hidden=true});
-  Promise.allSettled(['./data/jma_volcanoes.json','./data/jma_tsunami_coast.json','./data/base_geometry.json'].map(url=>fetch(url).then(r=>{if(!r.ok)throw Error();return r.json()}))).then(([v,c,l])=>{
+  Promise.allSettled(['./data/jma_volcanoes.json','./data/jma_tsunami_coast.json','./data/base_geometry.json','./data/simulation_land.json'].map(url=>fetch(url).then(r=>{if(!r.ok)throw Error();return r.json()}))).then(([v,c,l,simulationLand])=>{
    if(v.status==='fulfilled')volcanoes=v.value;
    if(c.status==='fulfilled')coasts=c.value;
-   if(l.status==='fulfilled')land=l.value;
-   const korea=land?.features?.find(f=>f.id==='KOR');if(coasts&&korea?.geometry?.type==='Polygon')coasts.features.push({type:'Feature',properties:{name:'한국 연안(간략)',code:'KR'},geometry:{type:'LineString',coordinates:korea.geometry.coordinates[0].slice(0,14)}});
+   if(simulationLand.status==='fulfilled')land=simulationLand.value;
+   const korea=l.status==='fulfilled'?l.value.features?.find(f=>f.id==='KOR'):null;if(coasts&&korea?.geometry?.type==='Polygon'){const ring=korea.geometry.coordinates[0];for(const [name,start,end] of [['한국 동해안(간략)',0,5],['한국 남해안(간략)',4,8],['한국 서해안(간략)',7,14]])coasts.features.push({type:'Feature',properties:{name,code:'KR-'+start},geometry:{type:'LineString',coordinates:ring.slice(start,end)}});}
    if(!coasts||!land)el('hazardTrainingResult').textContent='해안 자료 연결 실패 · 새로고침해 주세요.';
    lastSignature='';if(data)render(data);else simulationChanged();
   });
