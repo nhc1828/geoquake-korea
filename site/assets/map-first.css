@@ -160,3 +160,7 @@
 .hazard-panel{margin:10px;padding:10px;border:1px solid #405a70;border-radius:6px;color:#cadbe5;font-size:11px}.hazard-panel summary{cursor:pointer;font-weight:700}.hazard-panel p{margin:7px 0;line-height:1.5;overflow-wrap:anywhere}.hazard-panel section{border-top:1px solid #405a70;margin-top:10px;padding-top:8px}.hazard-panel section strong,.hazard-panel section small{display:block}.hazard-panel a{color:#9fe8d9}.sim-extra label{display:block;margin:8px 0}.sim-extra select,.sim-extra input{width:100%}
 
 .hazard-notice{position:absolute;z-index:40;top:70px;right:18px;max-width:min(440px,90%);padding:12px;background:#412b20;color:#ffe3bf;border:1px solid #db9e68;border-radius:8px;box-shadow:0 5px 25px #0008}.hazard-notice[hidden]{display:none}.hazard-notice strong,.hazard-notice span{display:block}.hazard-notice button{margin-top:7px}
+.gq-volcano-icon{width:24px;height:24px;line-height:20px;text-align:center;background:#ff9855;border:2px solid #fff;border-radius:50%;color:#391c12;font-weight:900;font-size:15px}
+.hazard-panel p button{margin-left:6px;padding:2px 5px;border:1px solid #8ab4c8;border-radius:4px;background:#203849;color:#e4f4fa;font-size:10px;cursor:pointer}
+.sim-hazard-notice{top:125px;white-space:normal;line-height:1.55;border-color:#ffbf69;background:#4b2817;color:#fff2d8;max-height:30vh;overflow:auto}
+.sim-extra p{font-size:11px;line-height:1.5;color:#c7d5dc}

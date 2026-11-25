@@ -10,8 +10,8 @@ const MODEL_NOTE=document.getElementById('mapKeyNote');
 const COUNTRIES=['KOR','JPN','CHN','TWN','PRK'];
 const ISO_NAME={KOR:'대한민국',JPN:'일본',CHN:'중국',TWN:'대만',PRK:'북한'};
 let provider='',map=null,lib=null,ready=false,polygons=[],regionCenters=[],latest=null,lastGeoKey='',lastEventKey='',reloadToken=0;
-let leafletZones=null,leafletEvents=null,leafletContours=null,leafletCenterPoints=null,leafletSimulation=null;
-let simFrame=null;
+let leafletZones=null,leafletEvents=null,leafletContours=null,leafletCenterPoints=null,leafletSimulation=null,leafletHazards=null;
+let simFrame=null,hazardFrame=null;
 const SUPPORTED_MODES=new Set(['hybrid','observed','model','off']);
 const once=(key,fn)=>{if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',fn,{once:true});else fn();};
 function tell(message,level='loading'){
@@ -132,7 +132,7 @@ function setupMapLibreLayers(){
   if(!map||provider!=='maplibre')return;
   const style=map.getStyle();
   const before=style.layers?.find(l=>l.type==='symbol')?.id;
-  for(const [id,type] of [['gq-contours','geojson'],['gq-zones','geojson'],['gq-centers','geojson'],['gq-events','geojson'],['gq-sim-waves','geojson'],['gq-sim-sensors','geojson']])if(!map.getSource(id))map.addSource(id,{type,data:EMPTY()});
+  for(const [id,type] of [['gq-contours','geojson'],['gq-zones','geojson'],['gq-centers','geojson'],['gq-events','geojson'],['gq-sim-waves','geojson'],['gq-sim-sensors','geojson'],['gq-hazards','geojson']])if(!map.getSource(id))map.addSource(id,{type,data:EMPTY()});
   map.addLayer({id:'gq-contours-fill',type:'fill',source:'gq-contours',paint:{'fill-color':['get','color'],'fill-opacity':0.12}},before);
   map.addLayer({id:'gq-zone-fill',type:'fill',source:'gq-zones',paint:{'fill-color':['get','color'],'fill-opacity':['case',['!=',['get','kind'],'estimate'],0.72,0.40]}},before);
   map.addLayer({id:'gq-zone-outline',type:'line',source:'gq-zones',paint:{'line-color':['case',['!=',['get','kind'],'estimate'],'#f2f8fb','#8cb5c7'],'line-width':['case',['!=',['get','kind'],'estimate'],1.3,0.65],'line-opacity':0.86}},before);
@@ -143,6 +143,11 @@ function setupMapLibreLayers(){
   map.addLayer({id:'gq-sim-station-label',type:'symbol',source:'gq-sim-sensors',layout:{'text-field':['case',['==',['get','selected'],1],['get','name'],''],'text-size':11,'text-allow-overlap':false},paint:{'text-color':'#fff5e4','text-halo-color':'#172638','text-halo-width':2}});
   map.addLayer({id:'gq-event-rings',type:'circle',source:'gq-events',filter:['==',['get','selected'],1],paint:{'circle-color':'rgba(255,220,140,0.03)','circle-radius':23,'circle-stroke-color':'#ffda94','circle-stroke-width':1.5}});
   map.addLayer({id:'gq-event-circles',type:'circle',source:'gq-events',paint:{'circle-color':['get','color'],'circle-radius':['case',['==',['get','selected'],1],8,5],'circle-stroke-color':'#0c2132','circle-stroke-width':2}});
+  map.addLayer({id:'gq-hazard-area',type:'fill',source:'gq-hazards',filter:['==',['geometry-type'],'Polygon'],paint:{'fill-color':['get','color'],'fill-opacity':0.18}});
+  map.addLayer({id:'gq-hazard-lines',type:'line',source:'gq-hazards',filter:['==',['geometry-type'],'LineString'],paint:{'line-color':['get','color'],'line-width':5,'line-opacity':0.95}});
+  map.addLayer({id:'gq-hazard-points',type:'circle',source:'gq-hazards',filter:['==',['geometry-type'],'Point'],paint:{'circle-radius':11,'circle-color':['get','color'],'circle-stroke-color':'#fff','circle-stroke-width':2}});
+  map.addLayer({id:'gq-hazard-icon',type:'symbol',source:'gq-hazards',filter:['==',['geometry-type'],'Point'],layout:{'text-field':'▲','text-size':16,'text-allow-overlap':true},paint:{'text-color':'#38190d'}});
+  for(const layer of ['gq-hazard-points','gq-hazard-lines','gq-hazard-area'])map.on('click',layer,e=>{if(window.GQSimulator?.isPicking())return;const p=e.features?.[0]?.properties;if(p)new lib.Popup({offset:10,maxWidth:'300px'}).setLngLat(e.lngLat).setDOMContent(popupContent([['구분',p.name||'발표'],['내용',p.detail||'기관 원문 확인']])).addTo(map)});
   map.on('click','gq-event-circles',e=>{if(window.GQSimulator?.isPicking())return;const id=e.features?.[0]?.properties?.id;if(id&&!String(id).startsWith('SIM:'))emit('gq-map-select',{id});});
   map.on('click','gq-sim-station-circles',e=>{const id=e.features?.[0]?.properties?.id;if(id)emit('gq-sim-select-point',{id});});
   map.on('click','gq-zone-fill',e=>{if(!window.GQSimulator?.isPicking())maplibrePopup(e);});
@@ -189,6 +194,15 @@ function redrawSimulationFrame(){
   }
 }
 function setSimulationFrame(frame){simFrame=frame;redrawSimulationFrame();}
+function redrawHazards(){
+  if(!ready)return;const data=hazardFrame||EMPTY();
+  if(provider==='maplibre')map.getSource('gq-hazards')?.setData(data);
+  else if(provider==='leaflet'&&leafletHazards){leafletHazards.clearLayers();for(const f of data.features||[]){
+    const p=f.properties||{},layer=lib.geoJSON(f,{style:{color:p.color||'#ffb72b',weight:5,fillOpacity:.18},pointToLayer:(_,ll)=>lib.marker(ll,{icon:lib.divIcon({className:'gq-volcano-icon',html:'▲',iconSize:[24,24]})})});
+    layer.bindPopup(popupContent([['구분',p.name||'발표'],['내용',p.detail||'기관 원문 확인']]));layer.addTo(leafletHazards);
+  }}
+}
+function setHazardFrame(frame){hazardFrame=frame;redrawHazards();}
 let latestDrawToken=0;
 function update(){
   if(!ready||!latest)return;
@@ -223,7 +237,7 @@ async function setupMapLibre(){
   setupMapLibreLayers();
   map.on('mousemove',e=>emit('gq-map-coord',{lat:e.lngLat.lat,lon:e.lngLat.lng}));
   map.on('click',e=>emit('gq-map-pick',{lat:e.lngLat.lat,lon:e.lngLat.lng}));
-  ready=true;ROOT.classList.add('map-gl');tell('', 'ready');update();redrawSimulationFrame();fitEastAsia();emit('gq-realmap-ready',{provider});
+  ready=true;ROOT.classList.add('map-gl');tell('', 'ready');update();redrawSimulationFrame();redrawHazards();fitEastAsia();emit('gq-realmap-ready',{provider});
 }
 async function setupLeaflet(){
   provider='leaflet';ROOT.replaceChildren();
@@ -235,10 +249,10 @@ async function setupLeaflet(){
   lib.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{
     attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>',minZoom:1,maxZoom:19,detectRetina:false
   }).addTo(map);
-  leafletZones=lib.layerGroup().addTo(map);leafletContours=lib.layerGroup().addTo(map);leafletCenterPoints=lib.layerGroup().addTo(map);leafletEvents=lib.layerGroup().addTo(map);leafletSimulation=lib.layerGroup().addTo(map);
+  leafletZones=lib.layerGroup().addTo(map);leafletContours=lib.layerGroup().addTo(map);leafletCenterPoints=lib.layerGroup().addTo(map);leafletEvents=lib.layerGroup().addTo(map);leafletSimulation=lib.layerGroup().addTo(map);leafletHazards=lib.layerGroup().addTo(map);
   map.on('mousemove',e=>emit('gq-map-coord',{lat:e.latlng.lat,lon:e.latlng.lng}));
   map.on('click',e=>emit('gq-map-pick',{lat:e.latlng.lat,lon:e.latlng.lng}));
-  ready=true;ROOT.classList.add('map-leaflet');tell('', 'ready');update();redrawSimulationFrame();fitEastAsia();emit('gq-realmap-ready',{provider});
+  ready=true;ROOT.classList.add('map-leaflet');tell('', 'ready');update();redrawSimulationFrame();redrawHazards();fitEastAsia();emit('gq-realmap-ready',{provider});
 }
 async function boot(){
   tell('실제 세계지도 연결 중…');
@@ -247,6 +261,6 @@ async function boot(){
   tell('벡터 지도 연결 지연 · OpenStreetMap 대체 지도 연결 중');
   try{await setupLeaflet();return}catch(e){tell('실제 지도 연결 실패 · 네트워크 상태를 확인하세요','error');console.warn('OSM fallback failed:',e?.message||e)}
 }
-const publicApi={setSnapshot,setSimulationFrame,focus,zoom,fitEastAsia,fitWorld,info:()=>({ready,provider,boundaries:polygons.length})};
+const publicApi={setSnapshot,setSimulationFrame,setHazardFrame,focus,zoom,fitEastAsia,fitWorld,info:()=>({ready,provider,boundaries:polygons.length})};
 window.GQRealMap=publicApi;
 once('dom',boot);

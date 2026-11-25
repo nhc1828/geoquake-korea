@@ -18,7 +18,7 @@ const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 const numField=id=>$(id).value.trim()?Number($(id).value):NaN;
 const fmt=x=>Number.isFinite(x)?x.toFixed(1):'—';
 const clock=ms=>new Date(ms).toLocaleTimeString('ko-KR',{timeZone:'Asia/Seoul',hour12:false,hour:'2-digit',minute:'2-digit',second:'2-digit'});
-function source(){const key=$('simPreset').value,p=presets[key];return {name:p?.name||'사용자 지정 진앙 (가상)',lat:numField('simLat'),lon:numField('simLon'),magnitude:Number($('simMag').value),depthKm:numField('simDepth')};}
+function source(){const key=$('simPreset').value,p=presets[key];return {name:window.GQHazards?.isVolcano()?'모의 화산성 지진':p?.name||'사용자 지정 진앙 (가상)',lat:numField('simLat'),lon:numField('simLon'),magnitude:Number($('simMag').value),depthKm:numField('simDepth')};}
 function setPreset(){const p=presets[$('simPreset').value];if(!p)return;
  $('simLat').value=p.lat.toFixed(4);$('simLon').value=p.lon.toFixed(4);$('simMag').value=p.magnitude;$('simMagValue').textContent=p.magnitude.toFixed(1);$('simDepth').value=p.depthKm;invalidate();}
 function getStations(){return state.regions.filter(x=>x.id.startsWith('KR-')?$('simKR').checked:$('simJP').checked);}
@@ -28,17 +28,17 @@ function showMode(){state.active=true;document.getElementById('application').cla
  $('newAlert').hidden=true;$('eventDetail').hidden=true;if(window.GQMapLive?.state)window.GQMapLive.state.detailsVisible=false;document.getElementById('application').classList.remove('real-alert-open');
  $('liveSidebar').hidden=true;$('simSidebar').hidden=false;$('simBanner').hidden=false;$('navExperiment').classList.add('active');$('navExperiment').setAttribute('aria-pressed','true');
  $('simRealtimeNotice').hidden=true;state.realAlert=null;$('simTransport').hidden=true;$('simBulletin').hidden=true;
- initBlankMap();window.GQRealMap?.focus(numField('simLon'),numField('simLat'),17);
+ initBlankMap();window.GQHazards?.simulationChanged();window.GQRealMap?.focus(numField('simLon'),numField('simLat'),17);
 }
 function stop(){state.active=false;state.playing=false;state.run=null;state.event=null;state.picking=null;state.realAlert=null;state.bulletinFired=false;
  $('simSidebar').hidden=true;$('liveSidebar').hidden=false;$('simBanner').hidden=true;$('simTransport').hidden=true;$('simBulletin').hidden=true;$('simRealtimeNotice').hidden=true;$('simPickNote').hidden=true;
  $('navExperiment').classList.remove('active');$('navExperiment').setAttribute('aria-pressed','false');document.getElementById('application').classList.remove('sim-active','real-alert-open');
- B.stop();window.GQRealMap?.setSimulationFrame(null);window.GQMapLive?.resync?.();
+ B.stop();window.GQRealMap?.setSimulationFrame(null);window.GQHazards?.simulationChanged();window.GQMapLive?.resync?.();
 }
 function toggle(){state.active?stop():showMode();}
-function invalidate(){if(!state.active)return;B.stop();state.playing=false;state.run=null;state.event=null;state.bulletinFired=false;state.time=0;state.lastFeedSig='';
+function invalidate(){if(!state.active)return;window.GQHazards?.clearVolcano();B.stop();state.playing=false;state.run=null;state.event=null;state.bulletinFired=false;state.time=0;state.lastFeedSig='';
  $('simTransport').hidden=true;$('simBulletin').hidden=true;$('simError').textContent='';$('simFeedCount').textContent='0건';$('simFeed').innerHTML='<p>조건을 바꿨습니다. 새 실험을 시작하세요.</p>';
- initBlankMap();}
+ initBlankMap();window.GQHazards?.simulationChanged();}
 function picks(mode){if(!state.active)return;state.picking=state.picking===mode?null:mode;
  $('simMapPick').classList.toggle('active',state.picking==='source');$('simPickPoint').classList.toggle('active',state.picking==='point');$('simPickNote').hidden=!state.picking;
  $('simPickNote').textContent=state.picking==='point'?'관심 지점 위치를 지도에서 클릭하세요 · Esc 취소':'진앙 위치를 지도에서 클릭하세요 · Esc 취소';}
@@ -131,7 +131,7 @@ function render(time,forceMap=false){if(!state.run)return;state.time=Math.max(0,
  $('simClock').textContent='T+'+fmt(state.time)+'s';$('simPhase').textContent=state.time>=state.run.duration?'재현 완료':snap.bulletin?'모의 속보 공개':'첫 P파 감지 전';
  $('simTimeline').value=state.time;$('simPlay').textContent=state.playing?'Ⅱ 일시정지':state.time>=state.run.duration?'↺ 처음부터':'▶ 재생';
  refreshBulletin(snap);feed(snap);renderSelected();if(forceMap||performance.now()-state.lastDraw>350)renderRegions();
- if(forceMap||performance.now()-state.lastDraw>110){frameMap();state.lastDraw=performance.now();}
+ if(forceMap||performance.now()-state.lastDraw>110){frameMap();window.GQHazards?.simulationChanged();state.lastDraw=performance.now();}
 }
 function tick(now){if(state.active&&state.run&&state.playing){const old=state.time,dt=Math.max(0,Math.min(0.25,(now-state.lastTick)/1000));state.time=Math.min(state.run.duration,old+dt*state.speed);
  if(!state.bulletinFired && old<state.run.firstP && state.time>=state.run.firstP){state.bulletinFired=true;showBulletin();trainingBroadcast();}
@@ -159,7 +159,8 @@ function bind(){
  for(const id of ['simKR','simJP'])$(id).onchange=()=>{updateSensorCount();invalidate()};
  $('simMapPick').onclick=()=>picks('source');$('simPickPoint').onclick=()=>picks('point');$('simAddPoint').onclick=addCustom;
  $('simPointList').onclick=e=>{const b=e.target.closest('[data-remove-point]');if(!b)return;state.custom=state.custom.filter(x=>x.id!==b.dataset.removePoint);renderCustom();invalidate()};
- $('simForm').onsubmit=e=>{e.preventDefault();setupRun()};
+ $('simForm').onsubmit=e=>{e.preventDefault();window.GQHazards?.clearVolcano();if(setupRun())window.GQHazards?.simulationChanged()};
+ $('simTsunami').onchange=()=>window.GQHazards?.simulationChanged();
  $('simReset').onclick=()=>invalidate();$('simPlay').onclick=setPlaying;
  $('simNext').onclick=()=>{if(!state.run)return;const next=S.nextTime(state.run,state.time);state.playing=false;fireBulletinByButton(next);render(next,true)};
  $('simFirst').onclick=()=>{if(!state.run)return;state.playing=false;fireBulletinByButton(state.run.firstP);render(state.run.firstP,true)};

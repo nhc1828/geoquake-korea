@@ -6,16 +6,17 @@
   <meta name="theme-color" content="#091521">
   <meta name="description" content="GEOQUAKE KOREA — 실제 KMA·JMA·USGS 지진 발표정보를 실시간으로 받아 지도와 알림으로 보여주는 웹 기반 모니터링 서비스.">
   <title>GEOQUAKE KOREA | 실시간 지진·통합 실험실</title>
-  <link rel="stylesheet" href="./assets/map-first.css?v=5.0.0">
+  <link rel="stylesheet" href="./assets/map-first.css?v=5.1.0">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@6.16.0/dist/maplibre-gl.css">
   <script defer src="./assets/map-first-core.js?v=5.0.0"></script>
   <script defer src="./assets/intensity-model.js?v=5.0.0"></script>
   <script defer src="./assets/sim-core.js?v=4.2.0"></script>
   <script defer src="./assets/map-first.js?v=5.0.0"></script>
   <script defer src="./assets/broadcast-script.js?v=4.3.0"></script>
-  <script defer src="./assets/hazards.js?v=3"></script>
-  <script defer src="./assets/sim-ui.js?v=4.3.0"></script>
-  <script type="module" src="./assets/real-map.js?v=5.0.0"></script>
+  <script defer src="./assets/hazard-core.js?v=1"></script>
+  <script defer src="./assets/hazards.js?v=4"></script>
+  <script defer src="./assets/sim-ui.js?v=4.4.0"></script>
+  <script type="module" src="./assets/real-map.js?v=5.1.0"></script>
 </head>
 <body>
 <div class="application" id="application">
@@ -49,7 +50,7 @@
       <div id="sourceStates"><div class="agency-row"><span>KMA</span><span>확인 중</span></div><div class="agency-row"><span>JMA</span><span>확인 중</span></div><div class="agency-row"><span>USGS</span><span>확인 중</span></div></div>
       <p class="source-foot">지진 발생 <b>후</b>의 발표정보를 표시합니다.<br>지진해일·화산 발표는 아래 별도 목록을 확인하세요.</p>
     </section>
-    <details class="hazard-panel"><summary>지진해일 · 화산 발표 확인</summary><p>한국·일본 발표 자료를 별도 조회합니다. 한국 자료는 기상청 API 활용 권한이 필요합니다. 수신 오류나 이력만으로 현재 상태를 판단할 수 없습니다.</p><div id="hazardContent">정보 수신 대기</div></details>
+    <details class="hazard-panel"><summary>지진해일 · 화산 발표 확인</summary><p>▲ 화산 위치를 누르거나 목록에서 지도 보기를 선택하세요. 일본 지진해일은 최근 발표 이력 중 구역이 확인되는 해안만 표시합니다. 한국 해일은 목록에서 확인하세요. 이력이나 빈 지도로 현재 발효 상태를 판단할 수 없습니다.</p><div id="hazardContent">정보 수신 대기</div></details>
     </div><!-- liveSidebar -->
     <section id="simSidebar" class="sim-sidebar" hidden aria-label="통합 지진 실험실 설정">
       <div class="sim-heading"><span>SIMULATION CONTROL · v0.8 MODEL</span><h2>지진 발생 실험</h2><p>실제 세계지도에서 파면·예상진도·가상 관측망을 재현합니다.</p></div>
@@ -64,6 +65,7 @@
           <label for="simDepth">진원 깊이 (km)</label><input id="simDepth" type="number" min="0" max="700" step="1" value="20" required>
           <fieldset class="sim-network"><legend>가상 관측망 <small id="simSensorCount">64곳</small></legend><label><input type="checkbox" id="simKR" checked> 한국 17곳</label><label><input type="checkbox" id="simJP" checked> 일본 47곳</label></fieldset>
           <label class="sim-check"><input type="checkbox" id="simFill" checked> 예상진도 색칠 · 숫자 표시</label>
+          <label class="sim-check"><input type="checkbox" id="simTsunami"> 지진해일 모의 경보 켜기</label>
           <label class="sim-check"><input type="checkbox" id="simWaves" checked> P·S파 전파 표시</label>
           <label class="sim-check"><input type="checkbox" id="simSensors" checked> 가상 관측점 표시</label>
           <label class="sim-check"><input type="checkbox" id="simSound" checked> 모의 긴급 경고음 재생</label>
@@ -73,7 +75,12 @@
           <button type="button" id="simBroadcastStop" class="sim-outline-btn">■ 방송 중지</button>
           <p class="sim-form-error" id="simError" role="status"></p>
         </form>
-        <details class="sim-extra"><summary>지진해일 · 화산 모의 발표</summary><form id="hazardTraining"><label>재해 종류<select id="hazardTrainingType"><option>지진해일</option><option>화산</option></select></label><label>가상 지역<input id="hazardTrainingPlace" maxlength="40" placeholder="가상 지역 이름"></label><label>모의 단계<select id="hazardTrainingLevel"><option>주의</option><option>경보</option><option>해제</option></select></label><button type="submit" class="sim-outline-btn">모의 발표 표시</button></form><p id="hazardTrainingResult">직접 설정하는 훈련입니다. 실제 경보나 물리 예측이 아닙니다.</p></details>
+        <details class="sim-extra" open><summary>화산 분화 실험</summary>
+          <p>위 진앙 좌표를 화산 위치로 사용합니다. 지도에서 직접 지정할 수도 있습니다.</p>
+          <label>화산폭발지수 VEI<select id="simVolcanoVei"><option>0</option><option>1</option><option>2</option><option selected>3</option><option>4</option><option>5</option><option>6</option><option>7</option><option>8</option></select></label>
+          <button type="button" id="simVolcanoLaunch" class="sim-outline-btn">▲ 모의 화산 분화 시작</button>
+          <p id="hazardTrainingResult" role="status">훈련용 임의 모형입니다. 실제 화산 경보·피해 예측이 아닙니다.</p>
+        </details>
         <details class="sim-extra" id="simExtra"><summary>관심 지점 추가 (최대 5곳)</summary>
           <div class="sim-double"><label>지점 이름<input id="simPointName" maxlength="24" value="관심 지점"></label><label>진도 체계<select id="simPointCountry"><option value="KR">MMI</option><option value="JP">JMA</option></select></label></div>
           <div class="sim-double"><label>위도 °<input id="simPointLat" type="number" min="-80" max="80" step="0.0001"></label><label>경도 °<input id="simPointLon" type="number" min="-180" max="180" step="0.0001"></label></div>
@@ -105,6 +112,7 @@
       <div id="realMap" class="real-map" role="application" aria-label="OpenStreetMap 기반 실제 전 세계 지진 지도. 마우스로 이동 및 확대·축소할 수 있습니다."></div>
       <div id="realMapStatus" class="real-map-status" data-level="loading">실제 세계지도를 연결하고 있습니다…</div>
     </div>
+    <div id="simHazardNotice" class="hazard-notice sim-hazard-notice" hidden role="status"></div>
     <div id="hazardNotice" class="hazard-notice" hidden role="status"><strong id="hazardNoticeText"></strong><span>기관 원문에서 현재 상태를 확인하세요.</span><button id="hazardNoticeClose" type="button">닫기</button></div>
     <div class="sim-banner" id="simBanner" hidden role="status"><strong>◈ SIMULATION · 모의실험</strong><span>이 지진·관측점·경보는 전부 교육용입니다. 실제 재난경보가 아닙니다.</span><button id="simExit" type="button">실험 종료 · LIVE 복귀</button></div>
     <div class="sim-pick-note" id="simPickNote" hidden>지도에서 지진 위치를 클릭하세요 · Esc로 취소</div>
@@ -125,7 +133,7 @@
     <div class="map-top-right"><div class="connection-status" id="connectionStatus" data-status="connecting"><span class="conn-dot"></span><span id="connectionText">서버 연결 중</span></div><button id="audioToggle" type="button" class="top-control" aria-pressed="false" title="지진 발표 알림음"><span id="audioIcon">♪</span> <span id="audioLabel">알림음 켜기</span></button><button id="mapFollow" type="button" class="top-control selected" aria-pressed="true">◎ 최신 사건 추적</button></div>
     <div class="map-key" id="mapKey"><div class="map-key-head"><b id="mapKeyTitle">관측 우선 + 추정 보완</b><span id="mapKeySubtitle">KMA·JMA 발표 / 교육용 추정</span></div><div class="intensity-legend"><span style="--x:#41637a">1</span><span style="--x:#4ba7c0">2</span><span style="--x:#63c69c">3</span><span style="--x:#d6c968">4</span><span style="--x:#ecb654">5약</span><span style="--x:#e98652">5강</span><span style="--x:#e36b65">6약</span><span style="--x:#b75bd5">6강</span><span style="--x:#ea87d6">7</span></div><div class="intensity-legend mmi-legend" aria-label="교육용 MMI 모형 등급"><span style="--x:#42647f">MMI 2</span><span style="--x:#48a4b0">4</span><span style="--x:#a6c468">6</span><span style="--x:#e9a453">8</span><span style="--x:#e56d62">10</span></div>
       <div class="quality-legend"><span><i class="quality-dot observed-dot"></i>기관 발표</span><span><i class="quality-dot estimated-dot"></i>교육용 추정</span></div>
-      <p id="mapKeyNote">기관이 발표한 지역별 진도를 우선합니다. 없는 지역은 교육용 거리감쇠 모형입니다.</p></div>
+      <p id="mapKeyNote">기관이 발표한 지역별 진도를 우선합니다. 없는 지역은 교육용 거리감쇠 모형입니다.</p><p>▲ 화산 발표 · 색 선 일본 지진해일 발표 이력</p></div>
     <div class="map-zoom" role="group" aria-label="지도 확대·축소"><button id="zoomIn" type="button" aria-label="확대">＋</button><button id="zoomOut" type="button" aria-label="축소">−</button><button id="zoomReset" type="button" aria-label="중국·한국·일본 전체 보기">⌖</button></div>
     <div class="map-foot"><span>지진정보: KMA · JMA(P2PQuake 중계) · USGS / 세계지도: OpenFreeMap · © OpenStreetMap / 행정경계: geoBoundaries gbOpen (CC BY 4.0)</span><span id="coordDisplay">한반도·일본</span></div>
     <div id="mapTip" class="map-tooltip" hidden></div>
