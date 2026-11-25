@@ -1,6 +1,7 @@
 import unittest
 from kma_feed import parse_kma_regions, parse_kma_json, parse_kma_bulletin
-from hazard_feed import volcano_reports, tsunami_reports, kma_tsunami_reports, kma_volcano_reports
+from hazard_feed import volcano_reports, tsunami_reports, kma_tsunami_reports, kma_volcano_reports, kma_failure_reason
+from kma_feed import KMAResponseError
 
 class RegionalBulletinTests(unittest.TestCase):
     def test_realistic_kma_grouped_intensity(self):
@@ -23,6 +24,15 @@ class RegionalBulletinTests(unittest.TestCase):
         self.assertFalse(e['observationsVerified'])
 
 class HazardFeedTests(unittest.TestCase):
+    def test_kma_failure_reason_never_exposes_provider_text(self):
+        class Response:
+            status_code = 403
+        class HTTPError(Exception):
+            response = Response()
+        self.assertEqual(kma_failure_reason(HTTPError('authKey=secret')), 'http_403')
+        self.assertEqual(kma_failure_reason(KMAResponseError('KMA API resultCode=20')), 'api_20')
+        self.assertEqual(kma_failure_reason(KMAResponseError('secret in error')), 'invalid_response')
+        self.assertEqual(kma_failure_reason(ValueError('authKey=secret')), 'invalid_response')
     def test_volcano_official_level_and_release(self):
         payload=[{'reportDatetime':'2026-09-01T16:00:00+09:00','eventId':'503','volcanoInfos':[{'type':'噴火警報・予報（対象火山）','items':[{'code':'12','areas':[{'name':'阿蘇山'}]}]}]}]
         item=volcano_reports(payload)[0]

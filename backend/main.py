@@ -12,7 +12,8 @@ import websockets
 from jma_feed import parse_jma_551
 from kma_feed import fetch_kma_bulletins
 from hazard_feed import (VOLCANO_URL, TSUNAMI_URL, volcano_reports, tsunami_reports,
-                         KMA_TSUNAMI_URL, KMA_VOLCANO_URL, kma_tsunami_reports, kma_volcano_reports)
+                         KMA_TSUNAMI_URL, KMA_VOLCANO_URL, kma_tsunami_reports, kma_volcano_reports,
+                         kma_failure_reason)
 
 import httpx
 import uvicorn
@@ -425,8 +426,9 @@ async def hazard_poll_loop():
                         items=kma_volcano_reports(response.content)
                     hazard_snapshot[key]={'state':'ok','checkedAt':checked,'items':items}
                 except Exception as exc:
-                    logger.warning('KMA hazard feed %s failed: %s',key,type(exc).__name__)
-                    hazard_snapshot[key]={**hazard_snapshot[key],'state':'error','checkedAt':checked}
+                    reason = kma_failure_reason(exc)
+                    logger.warning('KMA hazard feed %s failed: %s', key, reason)
+                    hazard_snapshot[key]={**hazard_snapshot[key],'state':'error','checkedAt':checked,'reason':reason}
             await asyncio.sleep(120)
 
 @asynccontextmanager

@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from jma_feed import jst_to_utc
 from kma_feed import parse_kma_page, kst_timestamp, text_field
 import xml.etree.ElementTree as ET
+import re
 
 VOLCANO_URL = 'https://www.jma.go.jp/bosai/volcano/data/warning.json'
 TSUNAMI_URL = 'https://api.p2pquake.net/v2/history'
@@ -50,6 +51,21 @@ def tsunami_reports(payload):
 
 KMA_TSUNAMI_URL = 'https://apihub.kma.go.kr/api/typ02/openApi/EqkInfoService/getTsunamiMsg'
 KMA_VOLCANO_URL = 'https://apihub.kma.go.kr/api/typ09/url/volc/selectVolcInfoList.do'
+
+
+def kma_failure_reason(exc):
+    """Expose only fixed diagnostic codes, never exception text or request URLs."""
+    response = getattr(exc, 'response', None)
+    status = getattr(response, 'status_code', None)
+    if isinstance(status, int) and 400 <= status <= 599:
+        return f'http_{status}'
+    if type(exc).__name__ == 'KMAResponseError':
+        match = re.fullmatch(r'KMA API resultCode=(\d{2})', str(exc))
+        return 'api_' + match.group(1) if match else 'invalid_response'
+    if type(exc).__name__ in ('TimeoutException', 'ConnectTimeout', 'ReadTimeout',
+                              'ConnectError', 'NetworkError', 'RemoteProtocolError'):
+        return 'network_error'
+    return 'invalid_response'
 
 def kma_tsunami_reports(payload):
     rows,total=parse_kma_page(payload)
