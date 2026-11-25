@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
   pages: write
   id-token: write
 
@@ -18,11 +19,10 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+    outputs:
+      artifact_name: ${{ steps.artifact-name.outputs.name }}
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -30,11 +30,68 @@ jobs:
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
 
+      - name: Set a unique artifact name for this attempt
+        id: artifact-name
+        run: echo "name=geoquake-pages-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
+
       - name: Upload frontend files
         uses: actions/upload-pages-artifact@v4
         with:
           path: site
+          name: ${{ steps.artifact-name.outputs.name }}
 
-      - name: Deploy frontend
-        id: deployment
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy1.outputs.page_url || steps.deploy2.outputs.page_url || steps.deploy3.outputs.page_url }}
+    steps:
+      - name: Wait for the Pages artifact to appear
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_NAME: ${{ needs.build.outputs.artifact_name }}
+        shell: bash
+        run: |
+          for attempt in {1..12}; do
+            count=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts?per_page=100" \
+              --jq "[.artifacts[] | select(.name == \"${ARTIFACT_NAME}\" and .expired == false)] | length" 2>/dev/null || echo 0)
+            if [ "$count" = "1" ]; then
+              echo "Pages artifact is available."
+              exit 0
+            fi
+            echo "Artifact not listed yet (attempt ${attempt}/12)."
+            sleep 10
+          done
+          echo "::error::Pages artifact was not available after two minutes."
+          exit 1
+
+      - name: Deploy to GitHub Pages
+        id: deploy1
+        continue-on-error: true
         uses: actions/deploy-pages@v4
+        with:
+          artifact_name: ${{ needs.build.outputs.artifact_name }}
+
+      - name: Wait before retrying deployment
+        if: steps.deploy1.outcome == 'failure'
+        run: sleep 15
+
+      - name: Retry deployment
+        id: deploy2
+        if: steps.deploy1.outcome == 'failure'
+        continue-on-error: true
+        uses: actions/deploy-pages@v4
+        with:
+          artifact_name: ${{ needs.build.outputs.artifact_name }}
+
+      - name: Wait before final retry
+        if: steps.deploy2.outcome == 'failure'
+        run: sleep 30
+
+      - name: Final deployment attempt
+        id: deploy3
+        if: steps.deploy2.outcome == 'failure'
+        uses: actions/deploy-pages@v4
+        with:
+          artifact_name: ${{ needs.build.outputs.artifact_name }}
