@@ -153,3 +153,10 @@
 .sim-broadcast-detail summary{cursor:pointer;font-size:11px;font-weight:650;color:#b6e4d8}
 .sim-broadcast-script{white-space:pre-wrap;max-height:180px;overflow:auto;background:#0d1d2bd9;padding:9px;margin:8px 0;border-radius:6px;font-size:11px;line-height:1.7}
 #simBroadcastStage{font-size:10px;color:#ffdb9c;margin-top:7px;font-weight:650}
+
+/* Keep lengthy bulletin values legible on narrow screens. */
+.intensity-banner b,.event-level strong,.alert-level b{overflow-wrap:anywhere;word-break:break-word;line-height:1.1}.languages{grid-template-columns:minmax(0,1fr)}.alert-language-strip>div{min-width:0;overflow-wrap:anywhere}
+
+.hazard-panel{margin:10px;padding:10px;border:1px solid #405a70;border-radius:6px;color:#cadbe5;font-size:11px}.hazard-panel summary{cursor:pointer;font-weight:700}.hazard-panel p{margin:7px 0;line-height:1.5;overflow-wrap:anywhere}.hazard-panel section{border-top:1px solid #405a70;margin-top:10px;padding-top:8px}.hazard-panel section strong,.hazard-panel section small{display:block}.hazard-panel a{color:#9fe8d9}.sim-extra label{display:block;margin:8px 0}.sim-extra select,.sim-extra input{width:100%}
+
+.hazard-notice{position:absolute;z-index:40;top:70px;right:18px;max-width:min(440px,90%);padding:12px;background:#412b20;color:#ffe3bf;border:1px solid #db9e68;border-radius:8px;box-shadow:0 5px 25px #0008}.hazard-notice[hidden]{display:none}.hazard-notice strong,.hazard-notice span{display:block}.hazard-notice button{margin-top:7px}

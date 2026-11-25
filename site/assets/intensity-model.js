@@ -36,6 +36,10 @@ function recorded(value){
   const label=String(value?.value??value??'');const index=JMA.indexOf(label);
   return index<0?null:{value:label,index,scale:'JMA 관측',color:JMA_COLORS[index],kind:'observed',eligible:true};
 }
+function kmaReported(value){
+  const number=Number(value?.value);if(!Number.isInteger(number)||number<1||number>12)return null;
+  return {value:String(number),index:number,scale:'KMA 발표 지역 진도',color:MMI_COLORS[number],kind:'reported',eligible:true};
+}
 function combine(estimateResult,observedResult,mode='hybrid'){
   if(mode==='off')return null;
   if(mode==='observed')return observedResult||null;
@@ -82,7 +86,7 @@ function polygonRepresentative(geometry){
   if(best&&finite(best.lon)&&finite(best.lat))return best;
   const p=polys[0]?.[0]?.[0];return Array.isArray(p)?{lon:p[0],lat:p[1]}:null;
 }
-const api={JMA,JMA_COLORS,MMI_COLORS,distanceKm,estimate,recorded,combine,destination,radiusAtMMI,contourFeatures,polygonRepresentative};
+const api={JMA,JMA_COLORS,MMI_COLORS,distanceKm,estimate,recorded,kmaReported,combine,destination,radiusAtMMI,contourFeatures,polygonRepresentative};
 root.GQIntensityModel=api;
 if(typeof module!=='undefined'&&module.exports)module.exports=api;
 })(typeof window!=='undefined'?window:globalThis);

@@ -88,12 +88,15 @@ function projectedZones(event,mode){
       const v=I.recorded(value);if(v)obs.set(id,v);
     }
   }
+  if(event.source==='KMA'&&event.reportedAreas&&typeof event.reportedAreas==='object'){
+    for(const [id,value] of Object.entries(event.reportedAreas))if(/^KR-\d{2}$/.test(id)){const v=I.kmaReported(value);if(v)obs.set(id,v);}
+  }
   const result=[],counts={observed:0,model:0};
   for(const f of polygons){const p=f.properties,id=p.id,estimate=hasModelInput?I.estimate(event,p.lat,p.lon,p.iso==='JPN'?'JMA':'MMI'):null;
-    const measured=p.iso==='JPN'?obs.get(id):null;
+    const measured=(p.iso==='JPN'||p.iso==='KOR')?obs.get(id):null;
     const v=I.combine(estimate,measured,mode);
     if(!v)continue;
-    counts[v.kind==='observed'?'observed':'model']++;
+    counts[v.kind==='estimate'?'model':'observed']++;
     result.push({...f,properties:{...p,kind:v.kind,intensityLabel:v.value,scale:v.scale,color:v.color,originDistanceKm:Math.round(estimate?.distanceKm??0),tooltip:p.name+' · '+v.scale+' '+v.value}});
   }
   // If administrative boundaries are unreachable, use real geo-coordinates for station badges,
@@ -101,7 +104,7 @@ function projectedZones(event,mode){
   const loaded=new Set(polygons.map(f=>f.properties.id).filter(Boolean));
   const points=[];
   for(const p of regionCenters){if(loaded.has(p.id))continue;
-    const v=I.combine(hasModelInput?I.estimate(event,p.lat,p.lon,p.id.startsWith('JP-')?'JMA':'MMI'):null,p.id.startsWith('JP-')?obs.get(p.id):null,mode);
+    const v=I.combine(hasModelInput?I.estimate(event,p.lat,p.lon,p.id.startsWith('JP-')?'JMA':'MMI'):null,obs.get(p.id)||null,mode);
     if(!v)continue;
     points.push({type:'Feature',geometry:{type:'Point',coordinates:[p.lon,p.lat]},properties:{id:p.id,name:p.name,kind:v.kind,color:v.color,intensityLabel:v.value,scale:v.scale}});
   }
@@ -122,7 +125,7 @@ function popupContent(lines){const box=document.createElement('div');box.classNa
 function maplibrePopup(e){
   if(!map||provider!=='maplibre')return;
   const p=e.features?.[0]?.properties,point=e.lngLat;if(!p)return;
-  const el=popupContent([['지역',p.name||p.place||'미상'],['진도',p.scale?p.scale+' '+p.intensityLabel:'발생정보'],['구분',p.kind==='observed'?'기관 관측점 최고값':p.kind==='estimate'?'교육용 거리감쇠 추정':'공식 발생정보']]);
+  const el=popupContent([['지역',p.name||p.place||'미상'],['진도',p.scale?p.scale+' '+p.intensityLabel:'발생정보'],['구분',p.kind==='reported'?'기관 발표 지역별 진도':p.kind==='observed'?'기관 관측점 최고값':p.kind==='estimate'?'교육용 거리감쇠 추정':'공식 발생정보']]);
   new lib.Popup({offset:10,maxWidth:'260px'}).setLngLat(point).setDOMContent(el).addTo(map);
 }
 function setupMapLibreLayers(){
@@ -131,8 +134,8 @@ function setupMapLibreLayers(){
   const before=style.layers?.find(l=>l.type==='symbol')?.id;
   for(const [id,type] of [['gq-contours','geojson'],['gq-zones','geojson'],['gq-centers','geojson'],['gq-events','geojson'],['gq-sim-waves','geojson'],['gq-sim-sensors','geojson']])if(!map.getSource(id))map.addSource(id,{type,data:EMPTY()});
   map.addLayer({id:'gq-contours-fill',type:'fill',source:'gq-contours',paint:{'fill-color':['get','color'],'fill-opacity':0.12}},before);
-  map.addLayer({id:'gq-zone-fill',type:'fill',source:'gq-zones',paint:{'fill-color':['get','color'],'fill-opacity':['case',['==',['get','kind'],'observed'],0.72,0.40]}},before);
-  map.addLayer({id:'gq-zone-outline',type:'line',source:'gq-zones',paint:{'line-color':['case',['==',['get','kind'],'observed'],'#f2f8fb','#8cb5c7'],'line-width':['case',['==',['get','kind'],'observed'],1.3,0.65],'line-opacity':0.86}},before);
+  map.addLayer({id:'gq-zone-fill',type:'fill',source:'gq-zones',paint:{'fill-color':['get','color'],'fill-opacity':['case',['!=',['get','kind'],'estimate'],0.72,0.40]}},before);
+  map.addLayer({id:'gq-zone-outline',type:'line',source:'gq-zones',paint:{'line-color':['case',['!=',['get','kind'],'estimate'],'#f2f8fb','#8cb5c7'],'line-width':['case',['!=',['get','kind'],'estimate'],1.3,0.65],'line-opacity':0.86}},before);
   map.addLayer({id:'gq-zone-label',type:'symbol',source:'gq-zones',layout:{'text-field':['get','intensityLabel'],'text-size':13,'text-font':['Noto Sans Regular'],'text-allow-overlap':false,'text-optional':true},paint:{'text-color':'#10202b','text-halo-color':'#eef6f3','text-halo-width':1.5}});
   map.addLayer({id:'gq-center-badges',type:'circle',source:'gq-centers',paint:{'circle-color':['get','color'],'circle-radius':9,'circle-stroke-color':'#112b42','circle-stroke-width':1.5}});
   map.addLayer({id:'gq-sim-wave-lines',type:'line',source:'gq-sim-waves',paint:{'line-color':['get','color'],'line-width':['case',['==',['get','phase'],'P'],2.5,3.4],'line-opacity':0.95,'line-dasharray':[3,2]}});
@@ -158,8 +161,8 @@ function redrawLeaflet(data){
   for(const lay of [leafletZones,leafletEvents,leafletContours,leafletCenterPoints])if(lay)lay.clearLayers();
   for(const f of data.contours)lib.geoJSON(f,{style:{color:f.properties.color,weight:0,fillColor:f.properties.color,fillOpacity:.08,interactive:false}}).addTo(leafletContours);
   for(const f of data.zones){
-    const layer=lib.geoJSON(f,{style:{color:f.properties.kind==='observed'?'#ecf8fa':'#8cb8cd',weight:f.properties.kind==='observed'?1.2:.5,fillColor:f.properties.color,fillOpacity:f.properties.kind==='observed'?.7:.40}});
-    layer.on('click',e=>lib.popup().setLatLng(e.latlng).setContent(popupContent([['지역',f.properties.name],['진도',f.properties.scale+' '+f.properties.intensityLabel],['종류',f.properties.kind==='observed'?'기관 관측점 최고값':'교육용 모형 추정']])).openOn(map));
+    const layer=lib.geoJSON(f,{style:{color:f.properties.kind!=='estimate'?'#ecf8fa':'#8cb8cd',weight:f.properties.kind!=='estimate'?1.2:.5,fillColor:f.properties.color,fillOpacity:f.properties.kind!=='estimate'?.7:.40}});
+    layer.on('click',e=>lib.popup().setLatLng(e.latlng).setContent(popupContent([['지역',f.properties.name],['진도',f.properties.scale+' '+f.properties.intensityLabel],['종류',f.properties.kind==='reported'?'기관 발표 지역별 진도':f.properties.kind==='observed'?'기관 관측점 최고값':'교육용 모형 추정']])).openOn(map));
     layer.addTo(leafletZones);
   }
   for(const f of data.points){const p=f.properties,ll=[f.geometry.coordinates[1],f.geometry.coordinates[0]];

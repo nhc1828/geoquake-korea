@@ -1,0 +1,10 @@
+const assert=require('node:assert/strict');
+const core=require('../site/assets/map-first-core.js');
+const model=require('../site/assets/intensity-model.js');
+assert.equal(core.normIntensity({source:'KMA',maxIntensity:'최대진도 Ⅳ(경북,충북),Ⅲ(강원)'}).value,'IV');
+assert.equal(model.kmaReported({value:'4'}).kind,'reported');
+assert.equal(model.combine({kind:'estimate'},model.kmaReported({value:'4'}),'hybrid').kind,'reported');
+assert.equal(core.placeKo('11 km WSW of Dyersburg, Tennessee'),'Dyersburg, Tennessee(원문) 서남서쪽 11km');
+const recent={occurredAt:'2026-11-23T11:00:00Z',updatedAt:'2026-11-23T11:02:00Z'},older={occurredAt:'2026-11-22T11:00:00Z',updatedAt:'2026-11-23T12:00:00Z'};
+assert.ok(core.latestSort(recent,older)<0);
+console.log('Frontend bulletin and regional model tests passed.');

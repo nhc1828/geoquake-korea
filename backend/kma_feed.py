@@ -13,6 +13,7 @@ import hashlib
 import json
 import math
 import re
+import unicodedata
 
 KST = timezone(timedelta(hours=9))
 KMA_URL = 'https://apihub.kma.go.kr/api/typ02/openApi/EqkInfoService/getEqkMsg'
@@ -119,6 +120,44 @@ def parse_kma_page(payload):
     return _records_from_body(resp.get('body'))
 
 
+# Only accept explicitly paired intensity/region groups. A bare maximum does
+# not identify the province in which it was recorded.
+KMA_REGIONS = {
+    '서울':'KR-11', '부산':'KR-26', '대구':'KR-27', '인천':'KR-28',
+    '광주':'KR-29', '대전':'KR-30', '울산':'KR-31', '세종':'KR-50',
+    '경기':'KR-41', '강원':'KR-42', '충북':'KR-43', '충남':'KR-44',
+    '전북':'KR-45', '전남':'KR-46', '경북':'KR-47', '경남':'KR-48', '제주':'KR-49',
+}
+ROMAN = {'I':1,'II':2,'III':3,'IV':4,'V':5,'VI':6,'VII':7,'VIII':8,'IX':9,'X':10,'XI':11,'XII':12}
+
+def parse_kma_regions(value):
+    if not isinstance(value, str):
+        return {}
+    text = unicodedata.normalize('NFKC', value).upper()
+    # Restrict matching to bounded, explicit groups; do not infer from a place name.
+    pattern = r'(?<![A-Z])(XII|XI|VIII|VII|III|IX|IV|VI|II|X|V|I)\s*(?:\(([^()]{1,120})\)|[:：]\s*([^()]+?)(?=\s*[,;，]?\s*(?:XII|XI|VIII|VII|III|IX|IV|VI|II|X|V|I)\s*[:：(]|$))'
+    out = {}
+    for match in re.finditer(pattern, text):
+        level = ROMAN[match.group(1)]
+        names = (match.group(2) or match.group(3)).strip()
+        for name in re.split(r'[,，·ㆍ/\s]+', names):
+            region = KMA_REGIONS.get(name)
+            if region:
+                out[region] = {'value': str(level), 'scale':'KMA', 'kind':'reported-area'}
+    return out
+
+
+def parse_kma_json(response):
+    # Some providers omit or mislabel their charset. Never replace undecodable
+    # bytes: that would silently corrupt place names and warning text.
+    raw = response.content
+    for encoding in ('utf-8-sig', 'cp949'):
+        try:
+            return json.loads(raw.decode(encoding))
+        except (UnicodeError, json.JSONDecodeError):
+            continue
+    raise KMAResponseError('KMA invalid JSON encoding')
+
 def parse_kma_bulletin(row):
     """Normalize an official KMA announcement; keep unavailable values as null."""
     if not isinstance(row, dict):
@@ -157,7 +196,7 @@ def parse_kma_bulletin(row):
         'bulletinTypeCode': kind, 'referenceNo': ref_no,
         'correctionType': correction, 'remarks': text_field(row.get('rem'), 320),
         'observationsVerified': False, 'observedRegions': {},
-        'reportedAreas': {}, 'url': KMA_INFO_URL,
+        'reportedAreas': parse_kma_regions(max_intensity), 'url': KMA_INFO_URL,
         'cancelled': False, 'ingestMode': 'history',
         'notice': '기상청 공식 발표 후 지진통보문 · inT가 있어도 개별 지역의 실제 관측진도는 별도 제공 필요',
     }
@@ -185,7 +224,7 @@ async def fetch_kma_bulletins(client, auth_key, *, current_time=None):
         if len(response.content) > MAX_RESPONSE_BYTES:
             raise KMAResponseError('KMA response too large')
         try:
-            rows, total = parse_kma_page(response.json())
+            rows, total = parse_kma_page(parse_kma_json(response))
         except (UnicodeError, json.JSONDecodeError) as exc:
             raise KMAResponseError('KMA invalid JSON') from exc
         if expected is None:

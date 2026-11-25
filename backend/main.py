@@ -11,6 +11,8 @@ import random
 import websockets
 from jma_feed import parse_jma_551
 from kma_feed import fetch_kma_bulletins
+from hazard_feed import (VOLCANO_URL, TSUNAMI_URL, volcano_reports, tsunami_reports,
+                         KMA_TSUNAMI_URL, KMA_VOLCANO_URL, kma_tsunami_reports, kma_volcano_reports)
 
 import httpx
 import uvicorn
@@ -380,9 +382,58 @@ async def poll_loop():
             await asyncio.sleep(POLL_SECONDS)
 
 
+# Separate from quake snapshots: do not let a feed error masquerade as an all-clear.
+hazard_snapshot = {key: {'state':'pending', 'checkedAt':None, 'items':[]} for key in ('jmaVolcano','jmaTsunami','kmaTsunami','kmaVolcano')}
+
+async def hazard_poll_loop():
+    async with httpx.AsyncClient(timeout=20, follow_redirects=False, headers={'User-Agent':'GEOQUAKE-KOREA/7 educational','Accept':'application/json'}) as http:
+        while True:
+            for key, url, params, parser in (
+                ('jmaVolcano', VOLCANO_URL, None, volcano_reports),
+                ('jmaTsunami', TSUNAMI_URL, {'codes':552,'limit':20}, tsunami_reports),
+            ):
+                checked=now()
+                try:
+                    response=await http.get(url, params=params)
+                    response.raise_for_status()
+                    if len(response.content)>2_000_000: raise ValueError('response too large')
+                    items=parser(response.json())
+                    hazard_snapshot[key]={'state':'ok','checkedAt':checked,'items':items}
+                except (httpx.HTTPError,ValueError,TypeError,KeyError) as exc:
+                    logger.warning('hazard feed %s failed: %s',key,type(exc).__name__)
+                    hazard_snapshot[key]={**hazard_snapshot[key], 'state':'error','checkedAt':checked}
+            secret=os.getenv('KMA_API_KEY','').strip()
+            for key,url in (('kmaTsunami',KMA_TSUNAMI_URL),('kmaVolcano',KMA_VOLCANO_URL)):
+                checked=now()
+                if not secret:
+                    hazard_snapshot[key]={'state':'unconfigured','checkedAt':checked,'items':[]}
+                    continue
+                current=datetime.now(timezone(timedelta(hours=9)))
+                if key=='kmaTsunami':
+                    params={'authKey':secret,'pageNo':1,'numOfRows':100,'dataType':'JSON',
+                            'fromTmFc':(current-timedelta(days=7)).strftime('%Y%m%d'),'toTmFc':current.strftime('%Y%m%d')}
+                else:
+                    params={'authKey':secret,'orderTy':'xml','orderCm':'L'}
+                try:
+                    response=await http.get(url,params=params)
+                    response.raise_for_status()
+                    if len(response.content)>2_000_000: raise ValueError('response too large')
+                    if key=='kmaTsunami':
+                        from kma_feed import parse_kma_json
+                        items=kma_tsunami_reports(parse_kma_json(response))
+                    else:
+                        items=kma_volcano_reports(response.content)
+                    hazard_snapshot[key]={'state':'ok','checkedAt':checked,'items':items}
+                except Exception as exc:
+                    logger.warning('KMA hazard feed %s failed: %s',key,type(exc).__name__)
+                    hazard_snapshot[key]={**hazard_snapshot[key],'state':'error','checkedAt':checked}
+            await asyncio.sleep(120)
+
 @asynccontextmanager
 async def lifespan(app):
     tasks = []
+    if os.getenv('GEOQUAKE_DISABLE_HAZARDS') != '1':
+        tasks.append(asyncio.create_task(hazard_poll_loop(), name='hazard-poll'))
     if os.getenv('GEOQUAKE_DISABLE_POLL') != '1':
         tasks.append(asyncio.create_task(poll_loop(), name='usgs-poll'))
     if os.getenv('GEOQUAKE_DISABLE_JMA') != '1':
@@ -421,6 +472,11 @@ async def health():
             'jmaCount': len(jma_records),
             'jmaLastMessageAt': snapshot['sources']['JMA'].get('lastMessageAt'),
             'lastGeneratedAt': snapshot['generatedAt'], 'connections': len(clients)}
+
+
+@app.get('/api/hazards')
+async def hazards():
+    return JSONResponse(hazard_snapshot, headers={'Cache-Control': 'no-store'})
 
 
 @app.get('/api/events')

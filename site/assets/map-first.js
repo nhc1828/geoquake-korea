@@ -55,18 +55,18 @@ function bindMap(){
   });
   window.addEventListener('gq-map-layer-updated',e=>{
     const {observed=0,estimated=0,boundaries=0,provider=''}=e.detail||{};
-    const label=state.intensityMode==='off'?'진도 색칠 꺼짐':state.intensityMode==='observed'?'관측진도만':state.intensityMode==='model'?'모형 추정만':'관측 우선 + 모형 보완';
-    $('mapKeyNote').textContent=`${label} · 기관 관측 ${observed}곳 / 모형 추정 ${estimated}곳 · 실제 행정경계 ${boundaries}개 · ${provider==='maplibre'?'세계 벡터지도':provider==='leaflet'?'OpenStreetMap':''}`;
+    const label=state.intensityMode==='off'?'진도 색칠 꺼짐':state.intensityMode==='observed'?'기관 발표 진도만':state.intensityMode==='model'?'모형 추정만':'관측 우선 + 모형 보완';
+    $('mapKeyNote').textContent=`${label} · 기관 발표 ${observed}곳 / 모형 추정 ${estimated}곳 · 실제 행정경계 ${boundaries}개 · ${provider==='maplibre'?'세계 벡터지도':provider==='leaflet'?'OpenStreetMap':''}`;
   });
 }
 function updateModeUI(){
-  const labels={hybrid:'관측 우선 + 추정 보완',observed:'관측진도만',model:'모형 예상진도만',off:'진도 색칠 끄기'};
+  const labels={hybrid:'관측 우선 + 추정 보완',observed:'기관 발표 진도만',model:'모형 예상진도만',off:'진도 색칠 끄기'};
   $('intensityModeSelect').value=state.intensityMode;
   $('navObserved').setAttribute('aria-label','진도 레이어: '+labels[state.intensityMode]);
   $('navObserved').setAttribute('title','진도 레이어 변경 · '+labels[state.intensityMode]);
   $('navObserved').setAttribute('aria-pressed',String(state.intensityMode!=='off'));
   $('mapKeyTitle').textContent=labels[state.intensityMode];
-  $('mapKeySubtitle').textContent='실측 JMA / 추정 JMA·MMI';
+  $('mapKeySubtitle').textContent='KMA·JMA 발표 / 교육용 추정';
   map.dirty=true;
 }
 function getVisibleEvents(){const all=state.snapshot?.events?.filter(C.validEvent)||[];
@@ -83,16 +83,16 @@ function renderList(){const rows=getVisibleEvents().slice(0,120);$('eventCount')
   if(!rows.length){const states=Object.values(state.snapshot?.sources||{});const hasOk=states.some(s=>s?.state==='ok');$('eventList').innerHTML=`<div class="empty-history">${hasOk?'현재 지도 범위의 발표가 없습니다. 필터를 변경해 확인할 수 있습니다.':'수신 중인 기관 자료가 없습니다. 오른쪽 연결 상태를 확인하세요.'}</div>`;return;}
   $('eventList').innerHTML=rows.map(e=>{
     const intensity=C.normIntensity(e),label=intensity?intensity.value:C.finite(e.magnitude)?'M'+e.magnitude.toFixed(1):'—',level=intensity?.index??-1,active=e.id===state.selectedId?' active':'';
-    return `<button class="event-row${active}" type="button" data-id="${esc(e.id)}"><div class="event-level ${intensity?'':'missing'}" data-level="${level}"><small>${intensity?'진도':C.finite(e.magnitude)?'규모':'미제공'}</small><strong>${esc(label)}</strong></div><div class="event-body"><strong>${esc(e.location||'진앙 미제공')}</strong><time>${esc(C.fmtDate(e.occurredAt).replace(' KST',''))}</time><div><b>${e.source}</b> · 깊이 ${esc(C.depthText(e))}</div></div></button>`;}).join('');
+    return `<button class="event-row${active}" type="button" data-id="${esc(e.id)}"><div class="event-level ${intensity?'':'missing'}" data-level="${level}"><small>${intensity?'진도':C.finite(e.magnitude)?'규모':'미제공'}</small><strong>${esc(label)}</strong></div><div class="event-body"><strong>${esc(C.placeKo(e.location))}</strong><time>${esc(C.fmtDate(e.occurredAt).replace(' KST',''))}</time><div><b>${e.source}</b> · 깊이 ${esc(C.depthText(e))}</div></div></button>`;}).join('');
 }
 function renderHero(){const e=state.snapshot?.events.find(x=>x.id===state.heroId)||bestEvent();if(!e){$('heroType').textContent='수신 준비 중';$('heroPlace').textContent='최신 지진 발표를 기다리고 있습니다';$('heroIntensityValue').textContent='—';$('heroIntensity').dataset.level='none';$('heroIntensityScale').textContent='기관 발표자료 미수신';$('heroTime').textContent='발생시각 —';$('heroSource').textContent='—';$('heroMag').textContent='—';$('heroDepth').textContent='—';$('heroDetails').disabled=true;return;}
-  const i=C.normIntensity(e);$('heroType').textContent=e.bulletinType||'지진 발생정보';$('heroSource').textContent=e.source;$('heroPlace').textContent=e.location||'진앙 미제공';$('heroTime').textContent=C.fmtDate(e.occurredAt);$('heroIntensityValue').textContent=i?i.value:'—';$('heroIntensity').dataset.level=String(i?.index??'none');$('heroIntensityScale').textContent=i?i.scale:'지역별 실제 진도 미제공';$('heroMag').textContent=C.finite(e.magnitude)?'M '+e.magnitude.toFixed(1):'—';$('heroDepth').textContent=C.depthText(e);$('heroDetails').disabled=false;
+  const i=C.normIntensity(e);$('heroType').textContent=e.bulletinType||'지진 발생정보';$('heroSource').textContent=e.source;$('heroPlace').textContent=C.placeKo(e.location);$('heroTime').textContent=C.fmtDate(e.occurredAt);$('heroIntensityValue').textContent=i?i.value:'—';$('heroIntensity').dataset.level=String(i?.index??'none');$('heroIntensityScale').textContent=i?i.scale:'지역별 실제 진도 미제공';$('heroMag').textContent=C.finite(e.magnitude)?'M '+e.magnitude.toFixed(1):'—';$('heroDepth').textContent=C.depthText(e);$('heroDetails').disabled=false;
   $('heroNotice').textContent=i?'기관 발표 최대진도와 지도 추정진도는 서로 다른 값입니다.':'지역별 실측값이 없으면 거리감쇠 모형으로 예상진도를 색칠합니다(교육용 추정).';
 }
 function renderDetails(){const e=selectedEvent();$('eventDetail').hidden=!e||!state.detailsVisible;if(!e)return;
-  $('detailTitle').textContent=e.location||'진앙 미제공';$('detailSubtitle').textContent=`${e.source} · ${e.bulletinType||'지진 발생정보'} · ${e.ingestMode==='history'?'과거 발표':'실제 발표'}`;
-  $('threeLang').innerHTML=['ko','en','ja'].map(lang=>{const d=C.cardRows(e,lang);return `<section class="langcard" lang="${lang}"><h4>${d.lang}</h4>${d.rows.map(([l,v])=>`<div class="lang-row"><span>${esc(l)}</span><b>${esc(v)}</b></div>`).join('')}</section>`}).join('');
-  const obs=C.observedRegions(e);$('detailNote').textContent=obs.length?`JMA 관측점 최고진도가 제공된 도도부현 ${obs.length}곳을 색칠합니다. 현 전체의 흔들림을 뜻하지 않습니다. 세 언어의 지명은 원문을 그대로 표시합니다.`:'지명은 기관 발표 원문입니다. 해당 사건의 지역별 검증된 관측진도는 수신 자료에 없어 임의로 색칠하지 않습니다.';
+  $('detailTitle').textContent=C.placeKo(e.location);$('detailSubtitle').textContent=`${e.source} · ${e.bulletinType||'지진 발생정보'} · ${e.ingestMode==='history'?'과거 발표':'실제 발표'}`;
+  const d=C.cardRows(e,'ko');$('threeLang').innerHTML=`<section class="langcard" lang="ko"><h4>지진 발표정보</h4>${d.rows.map(([l,v])=>`<div class="lang-row"><span>${esc(l)}</span><b>${esc(v)}</b></div>`).join('')}</section>`;
+  const obs=C.observedRegions(e);const kmaAreas=e.source==='KMA'?Object.keys(e.reportedAreas||{}).length:0;$('detailNote').textContent=kmaAreas?`KMA 발표에 명시된 지역 ${kmaAreas}곳을 색칠합니다. 지역 전체가 같은 진도로 흔들렸다는 뜻은 아닙니다.`:obs.length?`JMA 관측점 최고진도가 제공된 도도부현 ${obs.length}곳을 색칠합니다. 현 전체의 흔들림을 뜻하지 않습니다. 알려진 지명은 한국어로 표시합니다.`:'알려지지 않은 지명은 원문으로 표시합니다. 지역별 발표 진도가 없는 곳은 설정에 따라 교육용 모형을 표시합니다.';
   const url=C.safeSourceUrl(e.url);$('sourceLink').hidden=!url;if(url)$('sourceLink').href=url;
 }
 function choose(id,follow=false){const e=state.snapshot?.events.find(a=>a.id===id);if(!e)return;
@@ -102,12 +102,12 @@ function choose(id,follow=false){const e=state.snapshot?.events.find(a=>a.id===i
 function sourceFilter(key){state.source=key;document.querySelectorAll('.source-filter').forEach(b=>{const a=b.dataset.source===key;b.classList.toggle('active',a);b.setAttribute('aria-pressed',String(a))});
   if(!state.snapshot)return;const visible=getVisibleEvents();if(!visible.some(e=>e.id===state.selectedId)){state.selectedId=visible[0]?.id||null;state.heroId=state.selectedId;}renderList();renderHero();renderDetails();map.dirty=true;}
 function displayAlert(event){state.alertId=event.id;$('newAlert').hidden=false;
-  $('alertThreeLang').innerHTML=['ko','en','ja'].map(loc=>{const d=C.cardRows(event,loc);return `<div lang="${loc}"><small>${d.lang}</small><b>${esc(d.rows[1][0])}: ${esc(d.rows[1][1])}</b><span>${esc(d.rows[2][0])} ${esc(d.rows[2][1])} · ${esc(d.rows[0][1])}</span></div>`}).join('');
+  const d=C.cardRows(event,'ko');$('alertThreeLang').innerHTML=`<div lang="ko"><small>지진 발표정보</small><b>${esc(d.rows[1][1])}</b><span>${esc(d.rows[2][0])} ${esc(d.rows[2][1])} · ${esc(d.rows[0][1])}</span></div>`;
   $('alertMag').textContent=C.finite(event.magnitude)?event.magnitude.toFixed(1):C.normIntensity(event)?.value||'—';
   $('alertLevel').querySelector('small').textContent=C.finite(event.magnitude)?'규모 M':'발표 진도';
-  $('alertPlace').textContent=event.location||'진앙 미제공';$('alertAgency').textContent=(sourceNames[event.source]||event.source)+' · '+(event.bulletinType||'지진 발표정보');
+  $('alertPlace').textContent=C.placeKo(event.location);$('alertAgency').textContent=(sourceNames[event.source]||event.source)+' · '+(event.bulletinType||'지진 발표정보');
   $('alertTime').textContent='발생 '+C.fmtDate(event.occurredAt);}
-function notifySystem(event){if(typeof Notification==='undefined'||Notification.permission!=='granted'||!state.notificationEnabled)return;try{new Notification('GEOQUAKE · 새로운 실제 지진 발표',{body:`${event.source} · ${C.finite(event.magnitude)?'M '+C.magnitudeText(event):'규모 미제공'} · ${event.location||'진앙 미제공'}`,tag:'gq-real-'+event.id,renotify:false})}catch{}}
+function notifySystem(event){if(typeof Notification==='undefined'||Notification.permission!=='granted'||!state.notificationEnabled)return;try{new Notification('GEOQUAKE · 새로운 실제 지진 발표',{body:`${event.source} · ${C.finite(event.magnitude)?'M '+C.magnitudeText(event):'규모 미제공'} · ${C.placeKo(event.location)}`,tag:'gq-real-'+event.id,renotify:false})}catch{}}
 function startAudio(){const Ctx=window.AudioContext||window.webkitAudioContext;if(!Ctx)return null;if(!state.audio)state.audio=new Ctx();return state.audio}
 function playSound(){if(!state.soundEnabled)return;const a=startAudio();if(!a||a.state!=='running')return;
   const t=a.currentTime+.02;[[700,0,.14],[880,.21,.14]].forEach(([hz,delay,len])=>{const osc=a.createOscillator(),gain=a.createGain();osc.type='sine';osc.frequency.value=hz;gain.gain.setValueAtTime(0,t+delay);gain.gain.linearRampToValueAtTime(.095*state.volume,t+delay+.025);gain.gain.exponentialRampToValueAtTime(.0001,t+delay+len);osc.connect(gain);gain.connect(a.destination);osc.start(t+delay);osc.stop(t+delay+len+.015)});
