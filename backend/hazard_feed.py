@@ -50,6 +50,7 @@ def tsunami_reports(payload):
     return out
 
 KMA_TSUNAMI_URL = 'https://apihub.kma.go.kr/api/typ02/openApi/EqkInfoService/getTsunamiMsg'
+KMA_TSUNAMI_INFO_URL = 'https://apihub.kma.go.kr/api/typ09/url/tsnm/urlTsnmList.do'
 KMA_VOLCANO_URL = 'https://apihub.kma.go.kr/api/typ09/url/volc/selectVolcInfoList.do'
 
 
@@ -80,6 +81,35 @@ def kma_tsunami_reports(payload):
                     'area':text_field(row.get('reg'),500), 'body':text_field(row.get('ann'),2000),
                     'remarks':text_field(row.get('rem'),1000)})
     return out
+
+
+def kma_tsunami_info_reports(raw):
+    """Parse actual KMA tsunami information; unrecognized or empty XML is unknown."""
+    if not isinstance(raw, bytes) or len(raw) > 2_000_000 or b'<!DOCTYPE' in raw.upper() or b'<!ENTITY' in raw.upper():
+        raise ValueError('invalid tsunami XML')
+    root = ET.fromstring(raw)
+    records = []
+    for parent in root.iter():
+        fields = {child.tag.split('}')[-1]: (child.text or '').strip() for child in parent}
+        if 'tmIssue' not in fields or not any(k in fields for k in ('msgKo', 'wrnHighLoc', 'wrnLowLoc', 'relHighLoc', 'relLowLoc')):
+            continue
+        issued = kst_timestamp(fields.get('tmIssue'))
+        if not issued:
+            raise ValueError('invalid tsunami issue time')
+        areas = []
+        for key, label in (('wrnHighLoc', '경보'), ('wrnLowLoc', '주의보'),
+                           ('relHighLoc', '경보 해제'), ('relLowLoc', '주의보 해제')):
+            value = text_field(fields.get(key), 400)
+            if value:
+                areas.append(label + ': ' + value)
+        records.append({'id': 'KMA-TSUNAMI-INFO-' + issued,
+                        'issuedAt': issued, 'title': text_field(fields.get('msgKo'), 100) or '지진해일 정보',
+                        'area': ' / '.join(areas) or None,
+                        'body': text_field(fields.get('eqkLoc'), 200),
+                        'source': 'KMA 지진해일 정보 조회'})
+    if not records:
+        raise ValueError('KMA tsunami XML has no recognizable records')
+    return records[:100]
 
 def kma_volcano_reports(raw):
     if not isinstance(raw,bytes) or len(raw)>2_000_000 or b'<!DOCTYPE' in raw.upper() or b'<!ENTITY' in raw.upper():

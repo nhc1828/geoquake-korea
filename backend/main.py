@@ -12,7 +12,8 @@ import websockets
 from jma_feed import parse_jma_551
 from kma_feed import fetch_kma_bulletins
 from hazard_feed import (VOLCANO_URL, TSUNAMI_URL, volcano_reports, tsunami_reports,
-                         KMA_TSUNAMI_URL, KMA_VOLCANO_URL, kma_tsunami_reports, kma_volcano_reports,
+                         KMA_TSUNAMI_URL, KMA_TSUNAMI_INFO_URL, KMA_VOLCANO_URL, kma_tsunami_reports,
+                         kma_tsunami_info_reports, kma_volcano_reports,
                          kma_failure_reason)
 
 import httpx
@@ -429,6 +430,20 @@ async def hazard_poll_loop():
                     reason = kma_failure_reason(exc)
                     logger.warning('KMA hazard feed %s failed: %s', key, reason)
                     hazard_snapshot[key]={**hazard_snapshot[key],'state':'error','checkedAt':checked,'reason':reason}
+                    if key == 'kmaTsunami' and reason == 'api_99':
+                        # The independent information service is a fallback, not
+                        # proof of an all-clear when it returns an unknown shape.
+                        try:
+                            alternate = await http.get(KMA_TSUNAMI_INFO_URL,
+                                params={'authKey':secret, 'orderTy':'xml', 'orderCm':'L'})
+                            alternate.raise_for_status()
+                            items = kma_tsunami_info_reports(alternate.content)
+                            hazard_snapshot[key]={'state':'ok','checkedAt':checked,'items':items,
+                                                  'source':'KMA 지진해일 정보 조회'}
+                        except Exception as alternate_exc:
+                            fallback_reason = kma_failure_reason(alternate_exc)
+                            logger.warning('KMA tsunami information fallback failed: %s', fallback_reason)
+                            hazard_snapshot[key]['fallbackReason'] = fallback_reason
             await asyncio.sleep(120)
 
 @asynccontextmanager

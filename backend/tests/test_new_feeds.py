@@ -1,6 +1,7 @@
 import unittest
 from kma_feed import parse_kma_regions, parse_kma_json, parse_kma_bulletin
-from hazard_feed import volcano_reports, tsunami_reports, kma_tsunami_reports, kma_volcano_reports, kma_failure_reason
+from hazard_feed import (volcano_reports, tsunami_reports, kma_tsunami_reports,
+                         kma_tsunami_info_reports, kma_volcano_reports, kma_failure_reason)
 from kma_feed import KMAResponseError
 
 class RegionalBulletinTests(unittest.TestCase):
@@ -50,6 +51,18 @@ class HazardFeedTests(unittest.TestCase):
         self.assertEqual(row['issuedAt'],'2026-11-17T03:00:00Z')
         self.assertEqual(row['area'],'강원')
         self.assertEqual(kma_tsunami_reports({'response':{'header':{'resultCode':'03'}}}),[])
+    def test_kma_tsunami_information_fallback(self):
+        raw = ('<root><item><tmIssue>2026-11-25 20:00:00</tmIssue>'
+               '<msgKo>지진해일정보</msgKo><wrnHighLoc>강원</wrnHighLoc>'
+               '<relLowLoc>경북</relLowLoc><eqkLoc>동해</eqkLoc></item></root>').encode('utf-8')
+        item = kma_tsunami_info_reports(raw)[0]
+        self.assertEqual(item['issuedAt'], '2026-11-25T11:00:00Z')
+        self.assertIn('경보: 강원', item['area'])
+        self.assertIn('주의보 해제: 경북', item['area'])
+        with self.assertRaises(ValueError):
+            kma_tsunami_info_reports(b'<root/>')
+        with self.assertRaises(ValueError):
+            kma_tsunami_info_reports(b'<!DOCTYPE x [<!ENTITY y "x">]><x>&y;</x>')
     def test_kma_volcano_xml_and_unrecognized_response(self):
         raw='<root><item><volcName>백두산</volcName><tmIssue>2026-11-17 12:00:00</tmIssue><release>해제</release></item></root>'.encode('utf-8')
         self.assertEqual(kma_volcano_reports(raw)[0]['name'],'백두산')
